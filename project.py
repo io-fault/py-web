@@ -2,7 +2,7 @@ name = 'web'
 fork = 'funnel'
 identity = 'https://fault.io/project/python/web'
 abstract = 'process management tools for web interfaces'
-icon = '⚙'
+icon = '🌍'
 release = None
 
 controller = 'fault.io'
