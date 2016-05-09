@@ -38,8 +38,7 @@ class Javascript(libdev.Sources):
 	"""
 	__type__ = 'javascript'
 
-	@property
-	def output(self) -> libroutes.Route:
+	def output(self, role=None) -> libroutes.Route:
 		"The route file in the (file:directory)`__pycache__` directory."
 
 		return (self.factor.route.cache() / 'output.js')
@@ -48,7 +47,7 @@ class Javascript(libdev.Sources):
 	def bytes(self):
 		"The contents of the (file:application/javascript)`output.js` file."
 
-		with self.output.open('rb') as f:
+		with self.output().open('rb') as f:
 			return f.read()
 
 	@property
@@ -58,13 +57,13 @@ class Javascript(libdev.Sources):
 		return (self.factor.route.cache() / 'construct.log')
 
 	def compile(self):
-		target = self.output
+		target = self.output()
 		dirs, srcs = self.sources.tree()
 		srcs.sort(key=lambda x: x.identifier)
 		self.factor.route.cache().init('directory')
 
 		command = uglify(
-			self.output, srcs,
+			self.output(), srcs,
 			source_map_root=getattr(self, 'source_map_root', None),
 			module=None
 		)
@@ -85,11 +84,10 @@ class CSS(libdev.Sources):
 	def bytes(self):
 		"The binary contents of the (file:text/css)`output.css` file."
 
-		with self.output.open('rb') as f:
+		with self.output().open('rb') as f:
 			return f.read()
 
-	@property
-	def output(self) -> libroutes.Route:
+	def output(self, role=None) -> libroutes.Route:
 		"""
 		The route to the output file in the
 		(file:directory)`__pycache__` directory.
