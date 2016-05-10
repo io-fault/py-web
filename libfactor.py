@@ -101,7 +101,7 @@ class CSS(libdev.Sources):
 		srcs.sort(key=lambda x: x.identifier)
 		self.factor.route.cache().init('directory')
 
-		with open(str(self.output), 'wb') as out:
+		with open(str(self.output()), 'wb') as out:
 			for x in srcs:
 				with x.open('rb') as src:
 					out.write(src.read())
