@@ -1,9 +1,10 @@
-identity = 'https://fault.io/project/python/web'
+identity = 'https://fault.io/project/python/fault.web'
 name = 'web'
-abstract = 'process management tools for web interfaces'
+abstract = 'Tools for working with common web formats'
 icon = '🕸'
 
 fork = 'funnel'
+status = 'flux'
 
 controller = 'fault.io'
 contact = 'mailto:critical@fault.io'
