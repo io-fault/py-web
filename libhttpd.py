@@ -2,10 +2,12 @@
 Tools for constructing and managing an HTTP daemon.
 """
 # XXX: Check for relative paths before returning a filesystem resource.
+import typing
 import functools
 import itertools
 import json
 import hashlib
+import collections
 
 from ..routes import library as libroutes
 from ..computation import libmatch
@@ -85,10 +87,21 @@ def fs_resolve(cache, root, mime_types, accept):
 
 class Paths(object):
 	"""
-	Filesystem mounts based on MIME type.
+	Filesystem mounts based on MIME type. The &Paths handler uses a system
+	directory that contains a set of &..filesystem.library.Dictionary stores
+	organized by media types. The set of available types is checked against
+	the (http:header)`Accept` list provided by a request.
+
+	Directory lists are not handled. The entries must exist with relevant
+	information in order for listings to be retrieved.
+
+	! PENDING:
+		- Automatic directory indexing.
+		- `charset` media type parameter.
 	"""
 
 	def __init__(self, root):
+		global fs_resolve
 		self.root = libroutes.File.from_path(root)
 
 		cotypes = self.root.subnodes()[0]
@@ -97,7 +110,6 @@ class Paths(object):
 		self.types = tuple([libmedia.Type((x[0], x[1], ())) for x in self.paths])
 		self.dictionaries = {}
 
-		global fs_resolve
 		self.access = functools.partial(fs_resolve, self.dictionaries)
 
 	def __call__(self, path, query, px, str=str):
@@ -274,7 +286,7 @@ class Host(libio.Interface):
 
 		Provided for subclasses in order to override the usual (http:error)`404`.
 		"""
-		return self.h_error(404, Path(None, tuple(path.split('/'))), query, px, None)
+		return self.h_error(404, Path(None, tuple(path)), query, px, None)
 
 	def h_route(self, sector, px, dict=dict):
 		"""
@@ -303,7 +315,7 @@ class Host(libio.Interface):
 			if uri_path == '*' and px.request.method == "OPTIONS":
 				return self.options(query, px)
 			else:
-				return self.h_fallback(px, uri_path, query)
+				return self.h_fallback(px, ri.get('path', ()), query)
 		else:
 			xact_processor = self.h_prefixes[initial]
 			path = self.path(initial, uri_path)
@@ -317,117 +329,6 @@ class Host(libio.Interface):
 		# The connection should be abruptly interrupted if
 		# the output flow has already been connected.
 		self.h_error(500, path, query, px, exc)
-
-class Agent(libio.Interface):
-	"""
-	[ Properties ]
-
-	/(&str)`title`
-		The default `User-Agent` header.
-
-	/(&dict)`cookies`
-		A dictionary of cookies whose keys are either an exact
-		string of the domain or a tuple of domain names for pattern
-		hosts.
-	"""
-
-	def __init__(self, title='fault/0'):
-		super().__init__()
-		# Per-Host connection dictionary.
-		self.connections = weakref.WeakValueDictionary()
-		self.contexts = weakref.WeakValueDictionary()
-		self.title = title
-		self.cookies = {}
-		self.headers = []
-
-	@staticmethod
-	@functools.lru_cache(64)
-	def encoded(self, text):
-		"""
-		Encoded parts cache.
-		"""
-		return text.encode('utf-8')
-
-	def request(self,
-			host:str,
-			method:str,
-			path:str="/",
-			version:str='HTTP/1.1',
-			context:typing.Hashable=None,
-			headers:typing.Sequence[typing.Tuple[bytes,bytes]]=(),
-			accept:str=None,
-			agent:str=None,
-			final:bool=True,
-		):
-		"""
-		Build a &Request instance inheriting the Agent's configuration.
-		Requests can be re-used given identical parameters..
-
-		[ Parameters ]
-
-		/final
-			Whether or not the request is the final in the pipeline.
-			Causes the (http)`Connection: close` header to be emitted.
-		/accept
-			The media range to use.
-		"""
-
-		if agent is None:
-			agent = self.title
-
-		encoded = self.encoded
-
-		req = http.Request()
-		if self.headers:
-			req.add_headers(self.headers)
-
-		req.initiate((encoded(method), encoded(path), encoded(version)))
-		headers = []
-
-		if agent is not None:
-			headers.append((b'User-Agent', encoded(agent)))
-
-		if accept is not None:
-			headers.append((b'Accept', encoded(str(accept))))
-
-		if host is not None:
-			headers.append((b'Host', host.encode('idna')))
-
-		if final is True:
-			headers.append((b'Connection', b'close'))
-
-		req.add_headers(headers)
-
-		return req
-
-	def cache(self, target:str,
-			request:Request,
-			endpoint=None,
-			security:str='tls',
-			replace:bool=False,
-		):
-		"""
-		Download the HTTP resource to the filesystem. If the target file exists, a HEAD
-		request will be generated in order to identify if completion is possible.
-
-		[ Parameters ]
-
-		/replace
-			Remove the target file if it exists and download the resource again.
-		"""
-
-		raise NotImplementedError("unavailable")
-
-	def open(self, context, endpoint, transports=()) -> Client:
-		"""
-		Open a client connection and return the actuated &Client instance.
-		"""
-
-		global Client
-		hc = Client.open(self, endpoint, transports=transports)
-		self.connections[endpoint] = hc
-		self.process(hc)
-		return hc
 
 # Media Support (Accept header) for Python types.
 
@@ -609,7 +510,7 @@ class Resource(object):
 
 	def adapt(self,
 			context:object, path:http.Path, query:dict, px:http.ProtocolTransaction,
-			str=str, len=len, partial=functools.partial
+			str=str, len=len
 		):
 		"""
 		Adapt a single HTTP transaction to the configured resource.
@@ -625,7 +526,7 @@ class Resource(object):
 			cl = libio.Collection.list()
 			collection = cl.c_storage
 			px.connection.dispatch(cl)
-			fi.atexit(partial(self.transformed, context, collection, path, query, px))
+			fi.atexit(lambda xp: self.transformed(context, collection, path, query, px, xp))
 			px.connect_input(cl)
 
 			return cl
