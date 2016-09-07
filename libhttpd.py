@@ -24,6 +24,9 @@ def init(sector, hostnames, root, *slots):
 	"""
 	Initialize an HTTP host in the given sector.
 	"""
+	global Host
+
+	h = Host()
 	h.h_update_names(*hostnames)
 	h.h_update_mounts(root)
 	h.h_options = {}
