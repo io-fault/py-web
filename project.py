@@ -1,10 +1,10 @@
-identity = 'http://fault.io/python/fault.web'
+identity = 'http://fault.io/python/web'
 name = 'web'
 abstract = 'Tools for working with common web formats'
 icon = '🕸'
 
-versioning = 'continuous'
 fork = 'funnel'
+versioning = 'continuous'
 status = 'flux'
 
 controller = 'fault.io'
