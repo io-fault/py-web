@@ -20,6 +20,26 @@ from ..internet.data import http as data_http
 from ..io import http
 from ..io import library as libio
 
+from ..xml import library as libxml
+
+class Path(libroutes.Route):
+	"""
+	A Path sequence used to aid in request routing and request path construction.
+	"""
+
+	def __str__(self):
+		return '/' + '/'.join(self.absolute)
+
+	@property
+	def index(self):
+		"""
+		Whether the Path is referrring to a directory index. (Ends with a slash)
+		"""
+		if self.points:
+			return self.points[-1] == ""
+		else:
+			self.absolute[-1] == ""
+
 def init(sector, hostnames, root, *slots):
 	"""
 	Initialize an HTTP host in the given sector.
@@ -275,7 +295,7 @@ class Host(libio.Interface):
 		px.response.initiate((version, code_bytes, description_bytes))
 		px.response.add_headers([
 			(b'Content-Type', b'text/xml'),
-			(b'Content-Length', length_strings(errmsg),)
+			(b'Content-Length', http.length_strings(errmsg),)
 		])
 
 		proc = libio.Iteration([errmsg])
@@ -480,7 +500,7 @@ class Resource(object):
 		it can be parsed into parameters for the resource method.
 		"""
 
-		data_input = b''.join(chain(chain(*chain(*collection))))
+		data_input = b''.join(chain(*collection))
 		mtyp = px.request.media_type
 		entity_body = json.loads(data_input.decode('utf-8')) # need to adapt based on type
 
@@ -498,7 +518,7 @@ class Resource(object):
 			if mime_type:
 				result = methods[mime_type[0]](context, self, content)
 			else:
-				raise Exception('cant handle accept header', mime_type) # host.error()
+				return px.host.h_error(500, path, query, px, None)
 
 		# Identify the necessary adaption for output.
 		ct, data = adapt(None, media_range, result)
@@ -512,14 +532,14 @@ class Resource(object):
 		pass
 
 	def adapt(self,
-			context:object, path:http.Path, query:dict, px:http.ProtocolTransaction,
+			context:object, path:Path, query:dict, px:http.ProtocolTransaction,
 			str=str, len=len
 		):
 		"""
 		Adapt a single HTTP transaction to the configured resource.
 		"""
 
-		if px.connect_input is not None:
+		if px.request.content:
 			if False and self.limit == 0:
 				# XXX: zero limit with entity body.
 				px.host.h_error(413, path, query, px, None)
@@ -529,11 +549,12 @@ class Resource(object):
 			cl = libio.Collection.list()
 			collection = cl.c_storage
 			px.connection.dispatch(cl)
-			fi.atexit(lambda xp: self.transformed(context, collection, path, query, px, xp))
+			cl.atexit(lambda xp: self.transformed(context, collection, path, query, px, xp))
 			px.connect_input(cl)
 
 			return cl
 		else:
+			px.connect_input(None)
 			return self.execute(context, None, path, query, px)
 
 	__call__ = adapt
@@ -567,10 +588,10 @@ class Index(Resource):
 
 		xmlgen = xmlctx.root(
 			'index', itertools.chain.from_iterable(
-				xmlctx.element('resource', None, name=x)
-				for name, rsrc in resources
+				xmlctx.element('resource', None, name=name)
+				for name in resources
 			),
-			namespace='https://fault.io/xml/http/resources'
+			namespace='http://fault.io/xml/http/resources'
 		)
 
 		return b''.join(xmlgen)
