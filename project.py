@@ -1,6 +1,6 @@
 identity = 'http://fault.io/python/web'
 name = 'web'
-abstract = 'Tools for working with common web formats'
+abstract = 'Tools and libraries for interacting with the web'
 icon = '🕸'
 
 fork = 'funnel'
