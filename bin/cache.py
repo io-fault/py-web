@@ -41,10 +41,11 @@ except:
 	security = None
 	securtiy_context = None
 
-def response_collected(sector, request, response, flow):
-	print('response collected')
+def response_collected(mitre, sector, request, response, flow):
+	print('response collected', flow)
+	mitre.terminate()
 
-def response_endpoint(client, request, response, connect, transports=(), tls=None):
+def response_endpoint(client, request, response, connect, transports=(), mitre=None, tls=None):
 	sector = client.sector
 	global gtls
 	gtls = tls
@@ -78,7 +79,7 @@ def response_endpoint(client, request, response, connect, transports=(), tls=Non
 	sector.dispatch(tf)
 	tf.f_connect(target)
 
-	target.atexit(functools.partial(response_collected, sector, request, response))
+	target.atexit(functools.partial(response_collected, mitre, sector, request, response))
 	connect(tf)
 
 def request(struct):
@@ -111,7 +112,7 @@ def dispatch(sector, url):
 	s = libio.Sector()
 	sector.dispatch(s)
 	s._flow(series)
-	mitre.m_request(functools.partial(response_endpoint, tls=tls), req, None)
+	mitre.m_request(functools.partial(response_endpoint, mitre=mitre, tls=tls), req, None)
 	series[0].process(None)
 
 	return s
