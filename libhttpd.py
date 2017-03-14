@@ -12,6 +12,7 @@ import collections
 from ..routes import library as libroutes
 from ..computation import libmatch
 from ..filesystem import library as libfs
+from ..system import library as libsys
 
 from ..internet import libmedia
 from ..internet import libri
@@ -21,6 +22,26 @@ from ..io import http
 from ..io import library as libio
 
 from ..xml import library as libxml
+
+class Signal(libsys.Control):
+	"""
+	Routing signal used to declare completion or delayed completion
+	of a resolution.
+
+	Signals are raised by routers when a checkpoint is reached.
+	"""
+
+	@property
+	def deferred(self):
+		"""
+		Whether the signal performs any connections with the remote end.
+		"""
+		return self.input is None and self.output is None
+
+	def __init__(self, xact, input=None, output=None):
+		self.protocol_transactions = xact
+		self.input = input
+		self.output = output
 
 class Path(libroutes.Route):
 	"""
@@ -51,7 +72,7 @@ def init(sector, hostnames, root, *slots):
 	h.h_update_mounts(root)
 	h.h_options = {}
 
-	si = libio.System(http.Server, h, h.h_route, (), 'http')
+	si = libio.System(http.Server, h, h.h_route, (), slot='http')
 
 	sector.dispatch(h)
 	sector.dispatch(si)
@@ -269,7 +290,7 @@ class Host(libio.Interface):
 
 	def h_error(self, code, path, query, px, exc, description=None, version=b'HTTP/1.1'):
 		"""
-		Host error handler. By default emits an XML document with an assigned stylesheet
+		Host error handler. By default, emits an XML document with an assigned stylesheet
 		that can be retrieved for formatting the error. Additional error data may by
 		injected into the document in order to provide application-level error information.
 
@@ -286,8 +307,10 @@ class Host(libio.Interface):
 		description_bytes = self.strcache(description)
 		errmsg = (
 			b'<?xml version="1.0" encoding="ascii"?>',
-			b'<?xml-stylesheet type="text/xsl" href="/if/error.xsl"?>',
-			b'<error xmlns="https://fault.io/xml/failure" domain="/internet/http">',
+			b'<?xml-stylesheet type="text/xsl" href="',
+			b'/sys/error.xsl',
+			b'"?>',
+			b'<error xmlns="http://fault.io/xml/failure" domain="/internet/http">',
 			b'<frame code="' + code_bytes + b'" message="' + description_bytes + b'"/>',
 			b'</error>',
 		)
@@ -319,8 +342,6 @@ class Host(libio.Interface):
 		Exceptions *must* fault the Connection, and normally do if called
 		from the expected mechanism.
 		"""
-		global Path
-		global libri
 
 		req = px.request
 		path = req.path.decode('utf-8').split('?', 1)
@@ -566,7 +587,9 @@ class Index(Resource):
 
 	@Resource.method()
 	def __index__(self, resource, parameters):
-		"List of interfaces for service management."
+		"""
+		List of interfaces for service management.
+		"""
 		global Resource
 
 		return [
