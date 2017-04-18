@@ -1,7 +1,22 @@
 """
-fault download client.
+# fault download client.
 
-HTTP client designed for downloading resources to the current working directory.
+# HTTP client designed for downloading resources to the current working directory.
+
+# [ Engineering ]
+
+# The download client is rather limited in its capacity. The intention of this program
+# is to provide a robust HTTP client for retrieving resources and storing them in
+# the local file system.
+
+# /Redirect Resolution
+	# Location and HTML redirects are not supported.
+# /Host Scanning in case of 404
+	# 404 errors do not cause the client to check the other hosts.
+# /Parallel Downloads
+	# Only one transfer per-process is supported.
+# /Security Certificate Validation
+	# No checks are performed to validate certificate chains.
 """
 
 import sys
@@ -46,8 +61,8 @@ def response_collected(mitre, sector, request, response, flow):
 	mitre.terminate()
 
 def response_endpoint(client, request, response, connect, transports=(), mitre=None, tls=None):
-	sector = client.sector
 	global gtls
+	sector = client.sector
 	gtls = tls
 
 	print(request)
@@ -67,7 +82,7 @@ def response_endpoint(client, request, response, connect, transports=(), mitre=N
 	target = client.context.append_file(str(path))
 	sector.dispatch(target)
 
-	trace = libio.Trace()
+	trace = libio.Traces()
 
 	track = libc.compose(functools.partial(radar.track, path), libc.sum_lengths)
 	trace.monitor("rate", track)
@@ -75,12 +90,11 @@ def response_endpoint(client, request, response, connect, transports=(), mitre=N
 	track = libc.partial(count, path)
 	trace.monitor("total", track)
 
-	tf = libio.Transformation(trace)
-	sector.dispatch(tf)
-	tf.f_connect(target)
+	sector.dispatch(trace)
+	trace.f_connect(target)
 
 	target.atexit(functools.partial(response_collected, mitre, sector, request, response))
-	connect(tf)
+	connect(trace)
 
 def request(struct):
 	req = http.Request()
