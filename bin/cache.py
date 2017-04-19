@@ -57,7 +57,8 @@ except:
 	securtiy_context = None
 
 def response_collected(mitre, sector, request, response, flow):
-	print('response collected', flow)
+	status()
+	print('\n\rResponse collected.')
 	mitre.terminate()
 
 def response_endpoint(client, request, response, connect, transports=(), mitre=None, tls=None):
@@ -66,10 +67,15 @@ def response_endpoint(client, request, response, connect, transports=(), mitre=N
 	gtls = tls
 
 	print(request)
-	print(response)
 	if tls:
-		print(tls)
-		print(tls.peer_certificate.subject)
+		i = tls.status()
+		print('%s [%s]' %(i[0], i[3]))
+		fields = '\n\t'.join([
+			'%s: %r' %(k, v)
+			for k, v in tls.peer_certificate.subject
+		])
+		print('\t'+fields)
+	print(response)
 
 	ri = request.resource_indicator
 	if ri["path"]:
@@ -133,7 +139,7 @@ def dispatch(sector, url):
 
 def process_exit(sector):
 	"""
-	Initialize exit code based on failures and print
+	# Initialize exit code based on failures and print
 	"""
 
 def status(time=None, next=libtime.Measure.of(second=1)):
@@ -176,6 +182,7 @@ def initialize(unit):
 	unit.place(root_sector, "bin", "http-control")
 	root_sector.subresource(unit)
 	root_sector.actuate()
+	root_sector.actuated = True
 
 	if not lendpoints:
 		root_sector.terminate()
