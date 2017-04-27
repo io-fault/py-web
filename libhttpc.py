@@ -1,20 +1,20 @@
 """
-High-level HTTP client support.
+# High-level HTTP client support.
 
-Provides an &Agent class for managing sets of connections to HTTP servers.
+# Provides an &Agent class for managing sets of connections to HTTP servers.
 """
 
 class Agent(libio.Interface):
 	"""
-	[ Properties ]
+	# [ Properties ]
 
-	/(&str)`title`
-		The default `User-Agent` header.
+	# /(&str)`title`
+		# The default `User-Agent` header.
 
-	/(&dict)`cookies`
-		A dictionary of cookies whose keys are either an exact
-		string of the domain or a tuple of domain names for pattern
-		hosts.
+	# /(&dict)`cookies`
+		# A dictionary of cookies whose keys are either an exact
+		# string of the domain or a tuple of domain names for pattern
+		# hosts.
 	"""
 
 	def __init__(self, title='fault/0'):
@@ -30,7 +30,7 @@ class Agent(libio.Interface):
 	@functools.lru_cache(64)
 	def encoded(self, text):
 		"""
-		Encoded parts cache.
+		# Encoded parts cache.
 		"""
 		return text.encode('utf-8')
 
@@ -46,16 +46,16 @@ class Agent(libio.Interface):
 			final:bool=True,
 		):
 		"""
-		Build a &http.Request instance inheriting the Agent's configuration.
-		Requests can be re-used given identical parameters..
+		# Build a &http.Request instance inheriting the Agent's configuration.
+		# Requests can be re-used given identical parameters..
 
-		[ Parameters ]
+		# [ Parameters ]
 
-		/final
-			Whether or not the request is the final in the pipeline.
-			Causes the (http)`Connection: close` header to be emitted.
-		/accept
-			The media range to use.
+		# /final
+			# Whether or not the request is the final in the pipeline.
+			# Causes the (http)`Connection: close` header to be emitted.
+		# /accept
+			# The media range to use.
 		"""
 
 		if agent is None:
@@ -93,20 +93,20 @@ class Agent(libio.Interface):
 			replace:bool=False,
 		):
 		"""
-		Download the HTTP resource to the filesystem. If the target file exists, a HEAD
-		request will be generated in order to identify if completion is possible.
+		# Download the HTTP resource to the filesystem. If the target file exists, a HEAD
+		# request will be generated in order to identify if completion is possible.
 
-		[ Parameters ]
+		# [ Parameters ]
 
-		/replace
-			Remove the target file if it exists and download the resource again.
+		# /replace
+			# Remove the target file if it exists and download the resource again.
 		"""
 
 		raise NotImplementedError("unavailable")
 
 	def open(self, context, endpoint, transports=()) -> http.Client:
 		"""
-		Open a client connection and return the actuated &Client instance.
+		# Open a client connection and return the actuated &Client instance.
 		"""
 
 		global http
