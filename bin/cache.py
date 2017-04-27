@@ -84,6 +84,7 @@ def response_endpoint(client, request, response, connect, transports=(), mitre=N
 		path = libroutes.File.from_path('index')
 
 	identities.append(path)
+	status()
 
 	target = client.context.append_file(str(path))
 	sector.dispatch(target)
@@ -120,6 +121,15 @@ def request(struct):
 def dispatch(sector, url):
 	struct, endpoint = url # libri.parse(x), libio.Endpoint(y)
 	req = request(struct)
+
+	from ...terminal import libformat
+	from ...terminal import device
+	dev = device.Display()
+	struct['fragment'] = '[%s]' %(str(endpoint),)
+	sys.stderr.buffer.write(dev.renderline(libformat.f_ri(struct)))
+	sys.stderr.buffer.write(b'\n')
+	sys.stderr.buffer.flush()
+
 	mitre = http.Client(None)
 
 	if struct['scheme'] == 'https':
@@ -150,7 +160,9 @@ def status(time=None, next=libtime.Measure.of(second=1)):
 
 		if seconds:
 			rate = (units / time.select('second'))
-			print("\r%s @ %f KB/sec %d bytes      " %(x, rate / 1024, transfer_counter[x]), end='')
+			print("\r%s %d bytes @ %f KB/sec      " %(x, transfer_counter[x], rate / 1024), end='')
+		else:
+			print("\r%s %d bytes      " %(x, transfer_counter[x]), end='')
 
 	return next
 
@@ -179,10 +191,7 @@ def initialize(unit):
 			lendpoints.append((struct, x))
 
 	root_sector = libio.Sector()
-	unit.place(root_sector, "bin", "http-control")
-	root_sector.subresource(unit)
-	root_sector.actuate()
-	root_sector.actuated = True
+	unit.dispatch(("bin", "http-control"), root_sector)
 
 	if not lendpoints:
 		root_sector.terminate()
@@ -193,6 +202,7 @@ def initialize(unit):
 	start_time = libtime.now()
 	root_sector.atexit(process_exit)
 	root_sector.scheduling()
+
 	r = root_sector.scheduler.recurrence(status)
 	hc.atexit(r.terminate)
 
