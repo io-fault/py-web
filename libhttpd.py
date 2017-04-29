@@ -14,7 +14,7 @@ from ..filesystem import library as libfs
 from ..system import library as libsys
 from ..system import libmemory
 
-from ..internet import libmedia
+from ..internet import media
 from ..internet import ri
 
 from ..internet.data import http as data_http
@@ -138,7 +138,7 @@ def fs_resolve(cache, root, mime_types, accept):
 
 	if position.pattern:
 		# Pattern match; select the set based on it.
-		if position != libmedia.any_type:
+		if position != media.any_type:
 			# filter dictionaries.
 			types = [x for x in mime_types if x in position]
 		else:
@@ -180,7 +180,7 @@ class Paths(object):
 		cotypes = self.root.subnodes()[0]
 		subtypes = [cotype.subnodes()[0] for cotype in cotypes]
 		self.paths = [x.absolute[-2:] for x in itertools.chain(*subtypes)]
-		self.types = tuple([libmedia.Type((x[0], x[1], ())) for x in self.paths])
+		self.types = tuple([media.Type((x[0], x[1], ())) for x in self.paths])
 		self.dictionaries = {}
 
 		self.access = functools.partial(fs_resolve, self.dictionaries)
@@ -423,39 +423,39 @@ class Host(libio.Interface):
 # Media Support (Accept header) for Python types.
 
 # Preferences for particular types when no accept header is given or */*
-octets = (libmedia.Type.from_string(libmedia.types['data']),)
+octets = (media.Type.from_string(media.types['data']),)
 adaption_preferences = {
 	str: (
-		libmedia.Type.from_string('text/plain'),
-		libmedia.Type.from_string(libmedia.types['data']),
-		libmedia.Type.from_string(libmedia.types['json']),
+		media.Type.from_string('text/plain'),
+		media.Type.from_string(media.types['data']),
+		media.Type.from_string(media.types['json']),
 	),
 	bytes: octets,
 	memoryview: octets,
 	bytearray: octets,
 
 	list: (
-		libmedia.Type.from_string(libmedia.types['json']),
-		libmedia.Type.from_string('text/plain'),
+		media.Type.from_string(media.types['json']),
+		media.Type.from_string('text/plain'),
 	),
 	tuple: (
-		libmedia.Type.from_string(libmedia.types['json']),
-		libmedia.Type.from_string('text/plain'),
+		media.Type.from_string(media.types['json']),
+		media.Type.from_string('text/plain'),
 	),
 	dict: (
-		libmedia.Type.from_string(libmedia.types['json']),
-		libmedia.Type.from_string('text/plain'),
+		media.Type.from_string(media.types['json']),
+		media.Type.from_string('text/plain'),
 	),
 	None.__class__: (
-		libmedia.Type.from_string(libmedia.types['json']),
+		media.Type.from_string(media.types['json']),
 	)
 }
 del octets
 
 conversions = {
 	'text/plain': lambda x: str(x).encode('utf-8'),
-	libmedia.types['json']: lambda x: json.dumps(x).encode('utf-8'),
-	libmedia.types['data']: lambda x: x,
+	media.types['json']: lambda x: json.dumps(x).encode('utf-8'),
+	media.types['data']: lambda x: x,
 }
 
 def adapt(encoding_range, media_range, obj, iterating = None):
@@ -484,7 +484,7 @@ def adapt(encoding_range, media_range, obj, iterating = None):
 		return None
 
 	matched_request, match, quality = result
-	if match == libmedia.any_type:
+	if match == media.any_type:
 		# determine type from obj type
 		match = adaption_preferences[subject_type][0]
 
@@ -537,14 +537,14 @@ class Resource(object):
 		# Default to POST responding to any Accept.
 		"""
 		functools.wraps(subobj)(self)
-		self.methods[b'POST'][libmedia.any_type] = subobj
+		self.methods[b'POST'][media.any_type] = subobj
 		return self
 
 	def __init__(self, limit=None):
 		self.methods = collections.defaultdict(dict)
 		self.limit = limit
 
-	def getmethod(self, *types, MimeType=libmedia.Type.from_string):
+	def getmethod(self, *types, MimeType=media.Type.from_string):
 		"""
 		# Override the request handler for the resource when the request
 		# is preferring one of the given types.
@@ -737,7 +737,7 @@ class Files(object):
 		"""
 		# Iterator producing the XML elements describing the directory's content.
 		"""
-		get_type = libmedia.types.get
+		get_type = media.types.get
 
 		dl, fl = route.subnodes()
 		for f in fl:
@@ -901,7 +901,7 @@ class Files(object):
 				ranges = [(0, None)]
 				rsize = maximum
 
-			t = libmedia.types.get(route.extension, 'application/octet-stream')
+			t = media.types.get(route.extension, 'application/octet-stream')
 			px.response.add_headers([
 				(b'Content-Type', t.encode('utf-8')),
 				(b'Content-Length', str(rsize).encode('utf-8')),
