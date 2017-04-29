@@ -15,7 +15,7 @@ from ..system import library as libsys
 from ..system import libmemory
 
 from ..internet import libmedia
-from ..internet import libri
+from ..internet import ri
 
 from ..internet.data import http as data_http
 from ..io import http
@@ -394,8 +394,8 @@ class Host(libio.Interface):
 		path = path[:3]
 		uri_path = path[0]
 
-		parts = libri.Parts('authority', 'http', req.host+':80', *path)
-		ri = libri.structure(parts)
+		parts = ri.Parts('authority', 'http', req.host+':80', *path)
+		ris = ri.structure(parts)
 
 		initial = self.h_root.get(path[0], None)
 
@@ -404,12 +404,12 @@ class Host(libio.Interface):
 			if uri_path == '*' and px.request.method == b"OPTIONS":
 				return self.h_options_request(parts.query, px)
 			else:
-				return self.h_fallback(px, ri.get('path', ()), parts.query)
+				return self.h_fallback(px, ris.get('path', ()), parts.query)
 		else:
 			xact_processor = self.h_prefixes[initial]
 			path = self.path(initial, uri_path)
 
-			xact_processor(path, ri.get('query', {}), px)
+			xact_processor(path, ris.get('query', {}), px)
 
 	def h_transaction_fault(self, sector):
 		"""

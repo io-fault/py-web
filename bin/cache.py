@@ -28,7 +28,7 @@ import collections
 
 from ...chronometry import library as libtime
 from ...chronometry import libflow
-from ...internet import libri
+from ...internet import ri
 from ...routes import library as libroutes
 from ...computation import library as libc
 
@@ -105,7 +105,7 @@ def response_endpoint(client, request, response, connect, transports=(), mitre=N
 
 def request(struct):
 	req = http.Request()
-	path = libri.http(struct)
+	path = ri.http(struct)
 
 	req.initiate((b'GET', b'/'+path.encode('utf-8'), b'HTTP/1.1'))
 	req.add_headers([
@@ -119,7 +119,7 @@ def request(struct):
 	return req
 
 def dispatch(sector, url):
-	struct, endpoint = url # libri.parse(x), libio.Endpoint(y)
+	struct, endpoint = url # ri.parse(x), libio.Endpoint(y)
 	req = request(struct)
 
 	from ...terminal import libformat
@@ -181,7 +181,7 @@ def initialize(unit):
 	lendpoints = []
 	for struct, x in endpoints:
 		if x.protocol == 'domain':
-			a = socket.getaddrinfo(x.address, None, family=socket.AF_INET, proto=socket.SOCK_STREAM)
+			a = socket.getaddrinfo(x.address, None, family=socket.AF_INET, type=socket.SOCK_STREAM)
 			for i in a:
 				ip = i[-1][0]
 				y = libio.endpoint('ip4', ip, x.port)
