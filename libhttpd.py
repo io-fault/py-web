@@ -9,7 +9,7 @@ import hashlib
 import collections
 
 from ..routes import library as libroutes
-from ..computation import libmatch
+from ..computation import match
 from ..filesystem import library as libfs
 from ..system import library as libsys
 from ..system import libmemory
@@ -221,7 +221,7 @@ class Host(libio.Interface):
 		# inherited from requests.
 
 	# /h_root
-		# The root of the host's path as a &..computation.libmatch.SubsequenceScan.
+		# The root of the host's path as a &..computation.match.SubsequenceScan.
 		# This is the initial path of the router in order to allow "mounts"
 		# at arbitrary positions. Built from &requisite prefixes.
 
@@ -294,7 +294,7 @@ class Host(libio.Interface):
 		else:
 			self.h_canonical = None
 
-	def h_update_mounts(self, prefixes, root=None, Index=libmatch.SubsequenceScan):
+	def h_update_mounts(self, prefixes, root=None, Index=match.SubsequenceScan):
 		"""
 		# Update the host interface's root prefixes.
 		"""
