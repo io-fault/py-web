@@ -1,7 +1,6 @@
 import itertools
 import json
-from .. import libhttpd as library
-from .. import library as libio
+from .. import library
 
 def test_adapt(test):
 	plain = library.media.Type.from_string("text/plain")
