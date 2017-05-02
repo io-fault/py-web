@@ -27,7 +27,7 @@ import socket
 import collections
 
 from ...chronometry import library as libtime
-from ...chronometry import libflow
+from ...chronometry import rate
 from ...internet import ri
 from ...routes import library as libroutes
 from ...computation import library as libc
@@ -37,9 +37,10 @@ from ...io import http
 from ...io import libinternet
 
 transfer_counter = collections.Counter()
+content_length = None
 start_time = None
 identities = []
-radar = libflow.Radar()
+radar = rate.Radar()
 gtls = None
 
 def count(name, event):
@@ -63,8 +64,10 @@ def response_collected(mitre, sector, request, response, flow):
 
 def response_endpoint(client, request, response, connect, transports=(), mitre=None, tls=None):
 	global gtls
+	global content_length
 	sector = client.sector
 	gtls = tls
+	content_length = response.length
 
 	print(request)
 	if tls:
@@ -160,9 +163,15 @@ def status(time=None, next=libtime.Measure.of(second=1)):
 
 		if seconds:
 			rate = (units / time.select('second'))
-			print("\r%s %d bytes @ %f KB/sec      " %(x, transfer_counter[x], rate / 1024), end='')
+			if content_length is not None:
+				eta = ((content_length-transfer_counter[x]) / rate)
+			else:
+				eta = transfer_counter[x] / rate
+			m = libtime.Measure.of(second=int(eta), subsecond=eta-int(eta))
+			m = m.truncate('millisecond')
+			print("\r%s %d bytes @ %f KB/sec [%r]%s" %(x, transfer_counter[x], rate / 1000, m, ' '*40), end='')
 		else:
-			print("\r%s %d bytes      " %(x, transfer_counter[x]), end='')
+			print("\r%s %d bytes%s" %(x, transfer_counter[x], ' '*40), end='')
 
 	return next
 
