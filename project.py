@@ -1,6 +1,6 @@
-identity = 'http://fault.io/python/web'
+identity = 'http://fault.io/src/fault.web'
 name = 'web'
-abstract = 'Tools and libraries for interacting with the web'
+abstract = 'Tools for interacting with the web'
 icon = '🕸'
 
 fork = 'funnel'
