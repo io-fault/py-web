@@ -70,14 +70,23 @@ def response_endpoint(client, request, response, connect, transports=(), mitre=N
 	content_length = response.length
 
 	print(request)
+
 	if tls:
 		i = tls.status()
 		print('%s [%s]' %(i[0], i[3]))
+		print('\thostname:', tls.hostname.decode('idna'))
+		print('\tverror:', tls.verror or '[None: Verification Success]')
+		print('\tapplication:', tls.application)
+		print('\tprotocol:', tls.protocol)
+		print('\tstandard:', tls.standard)
 		fields = '\n\t'.join([
 			'%s: %r' %(k, v)
 			for k, v in tls.peer_certificate.subject
 		])
 		print('\t'+fields)
+	else:
+		print('TLS [none: no transport layer security]')
+
 	print(response)
 
 	ri = request.resource_indicator
@@ -136,7 +145,7 @@ def dispatch(sector, url):
 	mitre = http.Client(None)
 
 	if struct['scheme'] == 'https':
-		tls = security_context.connect()
+		tls = security_context.connect(struct['host'].encode('idna'))
 		series = sector.context.connect_subflows(endpoint, mitre, tls, http.Protocol.client())
 	else:
 		tls = None
@@ -154,6 +163,7 @@ def process_exit(sector):
 	"""
 	# Initialize exit code based on failures and print
 	"""
+	pass
 
 def status(time=None, next=libtime.Measure.of(second=1)):
 	for x in identities:
