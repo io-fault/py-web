@@ -518,7 +518,7 @@ class Resource(object):
 		# provide a response to a client.
 
 		#!/pl/python
-			@libhttpd.Resource.method(limit=0, ...)
+			@libweb.Resource.method(limit=0, ...)
 			def method(self, resource, path, query, protoxact):
 				"Primary POST implementation"
 				pass
@@ -659,7 +659,7 @@ class Index(Resource):
 				xmlctx.element('resource', None, name=name)
 				for name in resources
 			),
-			namespace='http://fault.io/xml/http/resources'
+			namespace='http://fault.io/xml/resources'
 		)
 
 		return b''.join(xmlgen)
@@ -696,8 +696,8 @@ class Dictionary(dict):
 	# the factor module for MIME type information and any other
 	# available metadata.
 
-	# (http:method)`GET` and (http:method)`HEAD` are the primary methods,
-	# but (http:method)`POST` is also supported for factors that are mounted
+	# (http/method)`GET` and (http/method)`HEAD` are the primary methods,
+	# but (http/method)`POST` is also supported for factors that are mounted
 	# as executable.
 	"""
 	__slots__ = ()
@@ -728,7 +728,7 @@ class Files(object):
 	# The MIME media type is identified by the file extension.
 	"""
 
-	stylesheet = "http://fault.io/if/files.xsl"
+	stylesheet = "/lib/if/directory.xsl"
 
 	def __init__(self, *routes):
 		self.routes = routes
@@ -818,7 +818,7 @@ class Files(object):
 						(b'Transfer-Encoding', b'chunked'),
 					])
 
-					px.response.initiate((b'HTTP/1.1', b'200', b'OK'))
+					px.response.OK()
 					px.io_read_null()
 					px.io_iterate_output(
 						[(b''.join(xml.root('index',
@@ -830,15 +830,16 @@ class Files(object):
 							('identifier', rpath[-1] if rpoints else None),
 							pi=[
 								('xslt-param', 'name="javascript" value="' + \
-									'http://test.fault.io/test/x/fault/web/index.js' + \
+									'/lib/if/directory/index.js' + \
 									'"'
 								),
 								('xslt-param', 'name="css" value="' + \
-									'http://test.fault.io/test/x/fault/web/index.css"'
+									'/lib/if/directory/index.css"'
 								),
+								('xslt-param', 'name="lib" value="/lib/if/directory"'),
 								('xml-stylesheet',
-									'type="text/xsl" href="http://test.fault.io/test' + \
-									'/x/fault/web/index/src/root.xml"'
+									'type="text/xsl" href="' + \
+									'/lib/if/directory/index.xsl"'
 								),
 							],
 							namespace="http://fault.io/xml/resources",
@@ -913,6 +914,14 @@ class Files(object):
 
 class Agent(libio.Interface):
 	"""
+	# HTTP User Agent interface for client &Network contexts.
+
+	# &Agent provides an interface to client networks. Like server networks,
+	# &Host contexts populate the sector and provide targeted handling of
+	# transactions. However, &Host instances inside client networks
+	# are a projection of a remote host and are used to manage host
+	# specific information.
+
 	# [ Properties ]
 
 	# /(&str)`title`
@@ -925,10 +934,7 @@ class Agent(libio.Interface):
 	"""
 
 	def __init__(self, title='fault/0'):
-		super().__init__()
 		# Per-Host connection dictionary.
-		self.connections = weakref.WeakValueDictionary()
-		self.contexts = weakref.WeakValueDictionary()
 		self.title = title
 		self.cookies = {}
 		self.headers = []
