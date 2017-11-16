@@ -1,4 +1,4 @@
-identity = 'http://fault.io/src/fault.web'
+identity = 'http://fault.io/src/python/web'
 name = 'web'
 abstract = 'Tools for interacting with the web'
 icon = '🕸'
