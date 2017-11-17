@@ -1,5 +1,5 @@
 """
-Tools for constructing and managing an HTTP daemon.
+# Tools for constructing and managing an HTTP daemon.
 """
 import typing
 import functools
@@ -229,7 +229,7 @@ class Host(libio.Interface):
 		# The handler for the root path. May be &None if &root can resolve it.
 
 	# /h_allowed_methods
-		# Option set provided in response to (http:initiate)`OPTIONS * HTTP/1.x`.
+		# Option set provided in response to (http/initiate)`OPTIONS * HTTP/1.x`.
 
 	# /h_mount_point
 		# The prefix used by the proxy to select the host to connect to.
@@ -377,7 +377,9 @@ class Host(libio.Interface):
 		# Provided for subclasses in order to override the usual (http/error)`404`.
 		"""
 
-		return self.h_error(404, Path(None, tuple(path)), query, px, None)
+		r = self.h_error(404, Path(None, tuple(path)), query, px, None)
+		px.io_read_null()
+		return r
 
 	def h_route(self, sector, px, dict=dict):
 		"""
@@ -708,6 +710,7 @@ class Dictionary(dict):
 			return
 
 		mime, data, mode = self[path.points]
+		px.io_read_null()
 		px.io_write_output(mime, data)
 
 def Factory(cache, selector, method, path, query, px):
