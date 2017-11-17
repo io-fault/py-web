@@ -134,11 +134,11 @@ def dispatch(sector, url):
 	struct, endpoint = url # ri.parse(x), libio.Endpoint(y)
 	req = request(struct)
 
-	from ...terminal import libformat
+	from ...terminal.format.url import f_struct
 	from ...terminal import device
 	dev = device.Display()
 	struct['fragment'] = '[%s]' %(str(endpoint),)
-	sys.stderr.buffer.write(dev.renderline(libformat.f_ri(struct)))
+	sys.stderr.buffer.write(dev.renderline(f_struct(struct)))
 	sys.stderr.buffer.write(b'\n')
 	sys.stderr.buffer.flush()
 
