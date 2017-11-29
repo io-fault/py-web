@@ -225,6 +225,9 @@ def initialize(unit):
 	r = root_sector.scheduler.recurrence(status)
 	hc.atexit(r.terminate)
 
-if __name__ == '__main__':
+def main():
 	os.umask(0o137)
 	libio.execute(control = (initialize,))
+
+if __name__ == '__main__':
+	main()
