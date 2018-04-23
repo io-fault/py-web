@@ -26,8 +26,8 @@ import itertools
 import socket
 import collections
 
-from ...chronometry import library as libtime
-from ...chronometry import rate
+from ...time import library as libtime
+from ...time import rate
 from ...internet import ri
 from ...routes import library as libroutes
 from ...computation import library as libc
