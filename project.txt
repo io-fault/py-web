@@ -1,0 +1,16 @@
+/source/
+	`http://fault.io/src/python/web`
+/name/
+	`web`
+/abstract/
+	`Web interaction tools`
+/icon/
+	- `🕸`
+/versioning/
+	continuous
+/status/
+	flux
+/controller/
+	`fault.io`
+/contact/
+	`http://fault.io/critical`
