@@ -1,15 +1,21 @@
-/source/
-	`http://fault.io/src/python/web`
+! CONTEXT:
+	/protocol/
+		&<http://if.fault.io/project>
+
+/identifier/
+	`http://fault.io/python/web`
 /name/
 	`web`
 /abstract/
-	`Web interaction tools`
+	Web interaction tools
 /icon/
 	- `🕸`
+
 /versioning/
 	continuous
 /status/
 	flux
+
 /controller/
 	`fault.io`
 /contact/
