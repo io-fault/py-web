@@ -151,8 +151,10 @@ class Serialization(object):
 	# Base class for XML serialization instances.
 	# Used to localize encoding bindings and default element prefixes.
 
-	# After the a Serialization instance is initialized,
-	# the &element and &escape attributes will be available.
+	# After a Serialization instance is initialized,
+	# the &element and &escape attributes will be available for use
+	# as they depend on the encoding. Serialization is strictly concerned
+	# with the binary emission of a document built for nested iterators.
 
 	# [ Properties ]
 
@@ -172,6 +174,7 @@ class Serialization(object):
 		self.xml_encoding = xml_encoding
 		self.element = functools.partial(encode_element, xml_encoding)
 		self.escape = functools.partial(escape_element_string, encoding=xml_encoding)
+		self.text = functools.partial(str.encode, xml_encoding, errors='strict')
 
 	def declaration(self, standalone=None):
 		"""
@@ -288,6 +291,16 @@ class Serialization(object):
 		"""
 
 		return b''.join(self.element('l:x%02x' %(ordinal,), None))
+
+	def text(self, *strings):
+		"""
+		# Emit a text node without escaping contents.
+		# Encoding errors will be raised.
+		"""
+		raise RuntimeError(
+			"Serialization.text is initialized and " + \
+			"cannot be used as an unbound method"
+		)
 
 	def escape(self, string):
 		"""
