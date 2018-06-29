@@ -21,7 +21,7 @@ from ..internet.data import http as data_http
 from ..io import http
 from ..io import library as libio
 
-from ..xml import library as libxml
+from . import xml as libxml
 
 class Path(libroutes.Route):
 	"""
