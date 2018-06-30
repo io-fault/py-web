@@ -1,6 +1,6 @@
 ! CONTEXT:
 	/protocol/
-		&<http://if.fault.io/project>
+		&<http://if.fault.io/project/information>
 
 /identifier/
 	`http://fault.io/python/web`
