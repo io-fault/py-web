@@ -9,13 +9,13 @@
 # is to provide a robust HTTP client for retrieving resources and storing them in
 # the local file system.
 
-# /Redirect Resolution
+# /Redirect Resolution/
 	# Location and HTML redirects are not supported.
-# /Host Scanning in case of 404
+# /Host Scanning in case of 404/
 	# 404 errors do not cause the client to check the other hosts.
-# /Parallel Downloads
+# /Parallel Downloads/
 	# Only one transfer per-process is supported.
-# /Security Certificate Validation
+# /Security Certificate Validation/
 	# No checks are performed to validate certificate chains.
 """
 
@@ -26,10 +26,11 @@ import itertools
 import socket
 import collections
 
+from ...system import files
+
 from ...time import library as libtime
 from ...time import rate
 from ...internet import ri
-from ...routes import library as libroutes
 from ...computation import library as libc
 
 from ...io import library as libio
@@ -91,9 +92,9 @@ def response_endpoint(client, request, response, connect, transports=(), mitre=N
 
 	ri = request.resource_indicator
 	if ri["path"]:
-		path = libroutes.File.from_path(ri["path"][-1])
+		path = files.Path.from_path(ri["path"][-1])
 	else:
-		path = libroutes.File.from_path('index')
+		path = files.Path.from_path('index')
 
 	identities.append(path)
 	status()

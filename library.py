@@ -11,8 +11,9 @@ import collections
 from ..routes import library as libroutes
 from ..computation import match
 from ..filesystem import library as libfs
-from ..system import library as libsys
+
 from ..system import libmemory
+from ..system import files
 
 from ..internet import media
 from ..internet import ri
@@ -110,7 +111,7 @@ class Network(libio.Context):
 
 def route_headers(route, mtype):
 	"""
-	# Construct a sequence of headers describing the given &libroutes.File.
+	# Construct a sequence of headers describing the given &files.Path.
 	"""
 
 	return (
@@ -164,7 +165,7 @@ class Paths(object):
 	# Filesystem mounts based on MIME type. The &Paths handler uses a system
 	# directory that contains a set of &..filesystem.library.Dictionary stores
 	# organized by media types. The set of available types is checked against
-	# the (http:header)`Accept` list provided by a request.
+	# the (http/header)`Accept` list provided by a request.
 
 	# directory lists are not handled. The entries must exist with relevant
 	# information in order for listings to be retrieved.
@@ -175,7 +176,7 @@ class Paths(object):
 	"""
 
 	def __init__(self, root):
-		self.root = libroutes.File.from_path(root)
+		self.root = files.Path.from_path(root)
 
 		cotypes = self.root.subnodes()[0]
 		subtypes = [cotype.subnodes()[0] for cotype in cotypes]
