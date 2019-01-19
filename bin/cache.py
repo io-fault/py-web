@@ -174,13 +174,20 @@ def status(time=None, next=libtime.Measure.of(second=1)):
 
 		if seconds:
 			rate = (units / time.select('second'))
-			if content_length is not None:
-				eta = ((content_length-transfer_counter[x]) / rate)
-			else:
-				eta = transfer_counter[x] / rate
-			m = libtime.Measure.of(second=int(eta), subsecond=eta-int(eta))
-			m = m.truncate('millisecond')
-			print("\r%s %d bytes @ %f KB/sec [%r]%s" %(x, transfer_counter[x], rate / 1000, m, ' '*40), end='')
+
+			try:
+				if content_length is not None:
+					eta = ((content_length-transfer_counter[x]) / rate)
+				else:
+					eta = transfer_counter[x] / rate
+				m = libtime.Measure.of(second=int(eta), subsecond=eta-int(eta))
+				m = m.truncate('millisecond')
+				xfer_rate = rate / 1000
+			except ZeroDivisionError:
+				m = libtime.never
+				xfer_rate = 0.0
+
+			print("\r%s %d bytes @ %f KB/sec [%r]%s" %(x, transfer_counter[x], xfer_rate, m, ' '*40), end='')
 		else:
 			print("\r%s %d bytes%s" %(x, transfer_counter[x], ' '*40), end='')
 
