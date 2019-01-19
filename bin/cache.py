@@ -58,9 +58,16 @@ except:
 	security = None
 	securtiy_context = None
 
-def response_collected(mitre, sector, request, response, flow):
+def response_collected(target_path, mitre, sector, request, response, flow):
 	status()
-	print('\n\rResponse collected.')
+
+	from ...terminal.format import path
+	from ...terminal import device
+	dev = device.Display()
+	sys.stdout.write('\n\rResponse collected; data stored in ')
+	sys.stdout.buffer.write(dev.renderline(path.f_route_absolute(target_path)))
+	sys.stdout.write('\n')
+
 	mitre.terminate()
 
 def response_endpoint(client, request, response, connect, transports=(), mitre=None, tls=None):
@@ -113,7 +120,7 @@ def response_endpoint(client, request, response, connect, transports=(), mitre=N
 	sector.dispatch(trace)
 	trace.f_connect(target)
 
-	target.atexit(functools.partial(response_collected, mitre, sector, request, response))
+	target.atexit(functools.partial(response_collected, path, mitre, sector, request, response))
 	connect(trace)
 
 def request(struct):
