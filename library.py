@@ -66,7 +66,7 @@ class Network(libio.Context):
 	# interface.
 
 	# [ Properties ]
-	# /http_default
+	# /http_default/
 		# The default HTTP Host; the &Host to select in
 		# cases where no (http/header)`Host` is designated by
 		# a request.
@@ -211,28 +211,28 @@ class Host(libio.Interface):
 
 	# [ Properties ]
 
-	# /h_names
+	# /h_names/
 		# The set hostnames that this host can facilitate.
 		# The object can be an arbitrary container in order
 		# to match patterns as well.
 
-	# /h_canonical
+	# /h_canonical/
 		# The first name given to &update_host_names. &None
 		# if no names were given and the name should be
 		# inherited from requests.
 
-	# /h_root
+	# /h_root/
 		# The root of the host's path as a &..computation.match.SubsequenceScan.
 		# This is the initial path of the router in order to allow "mounts"
 		# at arbitrary positions. Built from &requisite prefixes.
 
-	# /h_index
+	# /h_index/
 		# The handler for the root path. May be &None if &root can resolve it.
 
-	# /h_allowed_methods
+	# /h_allowed_methods/
 		# Option set provided in response to (http/initiate)`OPTIONS * HTTP/1.x`.
 
-	# /h_mount_point
+	# /h_mount_point/
 		# The prefix used by the proxy to select the host to connect to.
 		# When present, applications can use this data to properly
 		# generate URLs for redirects.
@@ -928,10 +928,10 @@ class Agent(libio.Interface):
 
 	# [ Properties ]
 
-	# /(&str)`title`
+	# /(&str)`title`/
 		# The default `User-Agent` header.
 
-	# /(&dict)`cookies`
+	# /(&dict)`cookies`/
 		# A dictionary of cookies whose keys are either an exact
 		# string of the domain or a tuple of domain names for pattern
 		# hosts.
