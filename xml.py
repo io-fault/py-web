@@ -1,14 +1,11 @@
 """
 # Nested generator based HTML/XML serialization module.
 
-# Provides primitives for generating XML using nested generators, and higher-level
-# functions for generating XML for built-in Python objects.
-
-# The functions vary with whether an encoded bytes object is returned or a string.
+# Provides primitives for generating XML using nested generators.
 
 # [ Properties ]
 # /namespaces/
-	# Common namespace labels of various XML namespaces.
+	# Common namespace labels for various XML namespaces.
 """
 import functools
 import itertools
