@@ -12,7 +12,7 @@ from ..routes import library as libroutes
 from ..computation import match
 from ..filesystem import library as libfs
 
-from ..system import libmemory
+from ..system import memory
 from ..system import files
 
 from ..internet import media
@@ -858,7 +858,7 @@ class Files(object):
 			if method == b'GET':
 				# Only read if the method is GET. HEAD just wants the headers.
 				try:
-					segments = libmemory.Segments.open(str(file))
+					segments = memory.Segments.open(str(file))
 				except PermissionError:
 					px.host.h_error(403, path, query, px, None)
 				else:
