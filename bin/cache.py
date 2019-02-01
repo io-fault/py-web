@@ -27,6 +27,7 @@ import socket
 import collections
 
 from ...system import files
+from ...system import process
 
 from ...time import library as libtime
 from ...time import rate
@@ -240,9 +241,10 @@ def initialize(unit):
 	r = root_sector.scheduler.recurrence(status)
 	hc.atexit(r.terminate)
 
-def main():
+def main(inv:process.Invocation) -> process.Exit:
 	os.umask(0o137)
-	libio.execute(control = (initialize,))
+	spr = libio.system.Process.spawn(inv, libio.Unit, {'control':(initialize,)}, 'root')
+	spr.boot(())
 
 if __name__ == '__main__':
-	main()
+	process.control(main, process.Invocation.system())
