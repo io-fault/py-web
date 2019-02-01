@@ -10,7 +10,7 @@ import collections
 
 from ..routes import library as libroutes
 from ..computation import match
-from ..filesystem import library as libfs
+from ..hkp import library as libhkp
 
 from ..system import memory
 from ..system import files
@@ -123,8 +123,8 @@ def route_headers(route, mtype):
 
 def fs_resolve(cache, root, mime_types, accept):
 	"""
-	# Given a root &libfs.Dictionary whose keys are mime-types and whose
-	# values are &libfs.Dictionary instances, return the &libroutes.Route
+	# Given a root &libhkp.Dictionary whose keys are mime-types and whose
+	# values are &libhkp.Dictionary instances, return the &libroutes.Route
 	# that best matches the acceptable types and the path.
 
 	# This function should be bound to an LRU cache in order to optimize
@@ -155,7 +155,7 @@ def fs_resolve(cache, root, mime_types, accept):
 
 		dictionary = cache.get(dictpath)
 		if dictionary is None:
-			dictionary = libfs.Dictionary.open(str(dictpath))
+			dictionary = libhkp.Dictionary.open(str(dictpath))
 			cache[dictpath] = dictionary
 
 		yield (t, dictionary)
