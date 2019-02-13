@@ -14,7 +14,7 @@
 /versioning/
 	continuous
 /status/
-	flux
+	volatile
 
 /controller/
 	`fault.io`
