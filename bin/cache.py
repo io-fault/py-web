@@ -34,9 +34,9 @@ from ...time import rate
 from ...internet import ri
 from ...computation import library as libc
 
-from ...io import library as libio
-from ...io import http
-from ...io import libinternet
+from ...kernel import library as libkernel
+from ...kernel import http
+from ...kernel import libinternet
 
 transfer_counter = collections.Counter()
 content_length = None
@@ -110,7 +110,7 @@ def response_endpoint(client, request, response, connect, transports=(), mitre=N
 	target = client.context.append_file(str(path))
 	sector.dispatch(target)
 
-	trace = libio.Traces()
+	trace = libkernel.Traces()
 
 	track = libc.compose(functools.partial(radar.track, path), libc.sum_lengths)
 	trace.monitor("rate", track)
@@ -140,7 +140,7 @@ def request(struct):
 	return req
 
 def dispatch(sector, url):
-	struct, endpoint = url # ri.parse(x), libio.Endpoint(y)
+	struct, endpoint = url # ri.parse(x), libkernel.Endpoint(y)
 	req = request(struct)
 
 	from ...terminal.format.url import f_struct
@@ -160,7 +160,7 @@ def dispatch(sector, url):
 		tls = None
 		series = sector.context.connect_subflows(endpoint, mitre, http.Protocol.client())
 
-	s = libio.Sector()
+	s = libkernel.Sector()
 	sector.dispatch(s)
 	s._flow(series)
 	mitre.m_request(functools.partial(response_endpoint, mitre=mitre, tls=tls), req, None)
@@ -204,7 +204,7 @@ def status(time=None, next=libtime.Measure.of(second=1)):
 def initialize(unit):
 	global start_time
 
-	libio.Ports.connect(unit)
+	libkernel.Ports.connect(unit)
 
 	proc = unit.context.process
 	urls = proc.invocation.parameters['system']['arguments']
@@ -219,13 +219,13 @@ def initialize(unit):
 			a = socket.getaddrinfo(x.address, None, family=socket.AF_INET, type=socket.SOCK_STREAM)
 			for i in a:
 				ip = i[-1][0]
-				y = libio.endpoint('ip4', ip, x.port)
+				y = libkernel.endpoint('ip4', ip, x.port)
 				print('Possible host:', y)
 			lendpoints.append((struct, y))
 		else:
 			lendpoints.append((struct, x))
 
-	root_sector = libio.Sector()
+	root_sector = libkernel.Sector()
 	unit.dispatch(("bin", "http-control"), root_sector)
 
 	if not lendpoints:
@@ -243,7 +243,7 @@ def initialize(unit):
 
 def main(inv:process.Invocation) -> process.Exit:
 	os.umask(0o137)
-	spr = libio.system.Process.spawn(inv, libio.Unit, {'control':(initialize,)}, 'root')
+	spr = libkernel.system.Process.spawn(inv, libkernel.Unit, {'control':(initialize,)}, 'root')
 	spr.boot(())
 
 if __name__ == '__main__':

@@ -19,8 +19,8 @@ from ..internet import media
 from ..internet import ri
 
 from ..internet.data import http as data_http
-from ..io import http
-from ..io import library as libio
+from ..kernel import http
+from ..kernel import library as libkernel
 
 from . import xml as libxml
 
@@ -52,14 +52,14 @@ def init(sector, hostnames, root, *slots):
 	h.h_update_mounts(root)
 	h.h_options = {}
 
-	si = libio.Network(http.Server, h, h.h_route, (), slot='http')
+	si = libkernel.Network(http.Server, h, h.h_route, (), slot='http')
 
 	sector.dispatch(h)
 	sector.dispatch(si)
 
 	return h, si
 
-class Network(libio.Context):
+class Network(libkernel.Context):
 	"""
 	# System Context for managing a set of &Host instances.
 	# Provides grouping for hosts that share the same system network
@@ -91,7 +91,7 @@ class Network(libio.Context):
 
 	def actuate(self):
 		sector = self.controller
-		f = libio.Funnel()
+		f = libkernel.Funnel()
 		self.transport_inlet = f
 		sector.dispatch(f)
 
@@ -102,7 +102,7 @@ class Network(libio.Context):
 			h.h_options = {}
 			sector.dispatch(h)
 
-		si = libio.Network(http.Server, h, h.h_route, (), slot='http')
+		si = libkernel.Network(http.Server, h, h.h_route, (), slot='http')
 
 		sector.dispatch(si)
 
@@ -204,7 +204,7 @@ class Paths(object):
 		else:
 			px.host.h_error(404, path, query, px, None)
 
-class Host(libio.Interface):
+class Host(libkernel.Interface):
 	"""
 	# An HTTP Host interface for managing routing of service connections,
 	# and handling the representation of error cases.
@@ -321,7 +321,7 @@ class Host(libio.Interface):
 		"""
 
 		for px in xacts:
-			px.xact_dispatch(libio.Call(self.h_route, px.connection, px))
+			px.xact_dispatch(libkernel.Call(self.h_route, px.connection, px))
 
 	def h_options_request(self, query, px):
 		"""
@@ -366,7 +366,7 @@ class Host(libio.Interface):
 			(b'Content-Length', http.length_strings(errmsg),)
 		])
 
-		proc = libio.Iteration([errmsg])
+		proc = libkernel.Iteration([errmsg])
 		px.controller.acquire(proc)
 		px.xact_ctx_connect_output(proc)
 		proc.actuate()
@@ -566,7 +566,7 @@ class Resource(object):
 
 	def transformed(self, context, collection, path, query, px, flow, chain=itertools.chain):
 		"""
-		# Once the request entity has been buffered into the &libio.Collection,
+		# Once the request entity has been buffered into the &libkernel.Collection,
 		# it can be parsed into parameters for the resource method.
 		"""
 
@@ -616,7 +616,7 @@ class Resource(object):
 				return
 
 			# Buffer and transform the input to the callable adherring to the limit.
-			cl = libio.Collection.list()
+			cl = libkernel.Collection.list()
 			collection = cl.c_storage
 			px.xact_dispatch(cl)
 			cl.atexit(lambda xp: self.transformed(context, collection, path, query, px, xp))
@@ -916,7 +916,7 @@ class Files(object):
 
 		return rsize, ranges
 
-class Agent(libio.Interface):
+class Agent(libkernel.Interface):
 	"""
 	# HTTP User Agent interface for client &Network contexts.
 
@@ -928,10 +928,10 @@ class Agent(libio.Interface):
 
 	# [ Properties ]
 
-	# /(&str)`title`/
+	# /(str)`title`/
 		# The default `User-Agent` header.
 
-	# /(&dict)`cookies`/
+	# /(dict)`cookies`/
 		# A dictionary of cookies whose keys are either an exact
 		# string of the domain or a tuple of domain names for pattern
 		# hosts.
