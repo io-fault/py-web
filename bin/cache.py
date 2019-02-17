@@ -36,8 +36,8 @@ from ...computation import library as libc
 
 from ...kernel import library as libkernel
 from ...kernel import flows
-from ...kernel import http
 from ...kernel import libinternet
+from .. import http
 
 transfer_counter = collections.Counter()
 content_length = None
