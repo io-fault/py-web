@@ -35,6 +35,7 @@ from ...internet import ri
 from ...computation import library as libc
 
 from ...kernel import library as libkernel
+from ...kernel import flows
 from ...kernel import http
 from ...kernel import libinternet
 
@@ -51,7 +52,7 @@ def count(name, event):
 
 certificates = os.environ.get('SSL_CERT_FILE', '/etc/ssl/cert.pem')
 try:
-	from ...io import security
+	from ...kernel import security
 	with open(certificates, 'rb') as f:
 		security_context = security.public(certificates=(f.read(),))
 except:
@@ -110,7 +111,7 @@ def response_endpoint(client, request, response, connect, transports=(), mitre=N
 	target = client.context.append_file(str(path))
 	sector.dispatch(target)
 
-	trace = libkernel.Traces()
+	trace = flows.Traces()
 
 	track = libc.compose(functools.partial(radar.track, path), libc.sum_lengths)
 	trace.monitor("rate", track)
