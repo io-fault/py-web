@@ -19,8 +19,8 @@ from ..internet import media
 from ..internet import ri
 
 from ..internet.data import http as data_http
-from ..kernel import http
 from ..kernel import library as libkernel
+from . import http
 
 from . import xml as libxml
 

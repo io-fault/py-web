@@ -32,11 +32,11 @@ from ...system import process
 from ...time import library as libtime
 from ...time import rate
 from ...internet import ri
+from ...internet import library as host
 from ...computation import library as libc
 
 from ...kernel import library as libkernel
 from ...kernel import flows
-from ...kernel import libinternet
 from .. import http
 
 transfer_counter = collections.Counter()
@@ -211,7 +211,7 @@ def initialize(unit):
 	urls = proc.invocation.parameters['system']['arguments']
 
 	# URL target; endpoint exists on a remote system.
-	endpoints = [libinternet.endpoint(x) for x in urls]
+	endpoints = [(struct, host.realize(struct)) for struct in map(ri.parse, urls)]
 
 	# Only load DNS if its needed.
 	lendpoints = []
