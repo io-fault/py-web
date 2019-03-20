@@ -60,14 +60,25 @@ except:
 	security = None
 	securtiy_context = None
 
+def pprint(file, screen, source):
+	rp = screen.terminal_type.normal_render_parameters
+
+	phrase = screen.Phrase.from_words(
+		itertools.chain.from_iterable(
+			rp.apply(textcolor=color).form(s)
+			for s, color in source
+		)
+	)
+	file.buffer.write(b''.join(screen.render(phrase)) + screen.reset_text())
+
 def response_collected(target_path, mitre, sector, request, response, flow):
 	status()
 
 	from ...terminal.format import path
-	from ...terminal import device
-	dev = device.Display()
+	from ...terminal import matrix
+	screen = matrix.Screen()
 	sys.stdout.write('\n\rResponse collected; data stored in ')
-	sys.stdout.buffer.write(dev.renderline(path.f_route_absolute(target_path)))
+	pprint(sys.stdout, screen, path.f_route_absolute(target_path))
 	sys.stdout.write('\n')
 
 	mitre.terminate()
@@ -145,11 +156,11 @@ def dispatch(sector, url):
 	req = request(struct)
 
 	from ...terminal.format.url import f_struct
-	from ...terminal import device
-	dev = device.Display()
+	from ...terminal import matrix
+	screen = matrix.Screen()
 	struct['fragment'] = '[%s]' %(str(endpoint),)
-	sys.stderr.buffer.write(dev.renderline(f_struct(struct)))
-	sys.stderr.buffer.write(b'\n')
+	pprint(sys.stderr, screen, f_struct(struct))
+	sys.stderr.write('\n')
 	sys.stderr.buffer.flush()
 
 	mitre = http.Client(None)
