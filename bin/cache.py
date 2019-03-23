@@ -32,7 +32,7 @@ from ...system import process
 from ...time import library as libtime
 from ...time import rate
 from ...internet import ri
-from ...internet import library as host
+from ...internet import host
 from ...computation import library as libc
 
 from ...kernel import library as libkernel
@@ -227,7 +227,7 @@ def initialize(unit):
 	# Only load DNS if its needed.
 	lendpoints = []
 	for struct, x in endpoints:
-		if x.protocol == 'domain':
+		if x.protocol == 'internet-names':
 			a = socket.getaddrinfo(x.address, None, family=socket.AF_INET, type=socket.SOCK_STREAM)
 			for i in a:
 				ip = i[-1][0]
