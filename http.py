@@ -978,7 +978,7 @@ class Client(flows.Mitre):
 		self.m_requests = []
 		self.m_route = router
 
-	def process(self, events, source=None):
+	def f_transfer(self, events, source=None):
 		"""
 		# Received a set of response initiations. Join with requests, and
 		# execute the receiver provided to &m_request.
@@ -1052,7 +1052,7 @@ class Server(flows.Mitre):
 
 			yield iox
 
-	def process(self, events, source=None):
+	def f_transfer(self, events, source=None):
 		"""
 		# Accept HTTP &Request's from the remote end and pair them with &Response's.
 		"""
