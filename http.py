@@ -478,10 +478,6 @@ class IO(libkernel.Transport):
 		self._xc_ci = ci
 		self._xc_co = co
 
-	def actuate(self):
-		# Temporary; reference cycle
-		self.connection = self.controller.controller
-
 	def terminate(self, by=None):
 		self.exit()
 
