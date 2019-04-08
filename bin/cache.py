@@ -111,17 +111,16 @@ class Download(libkernel.Executable):
 		sys.stderr.buffer.flush()
 
 		mitre = http.Client(None)
+		http_ts = http.Protocol.client().transport_api()
 
 		if struct['scheme'] == 'https':
 			tls = security_context.connect(struct['host'].encode('idna'))
-			series = self.system.connect_subflows(endpoint, mitre, tls, http.Protocol.client())
+			tls_ts = (tls, security.operations(tls))
+			series = self.system.connect_subflows(endpoint, mitre, tls_ts, http_ts)
 		else:
 			tls = None
-			series = self.system.connect_subflows(endpoint, mitre, http.Protocol.client())
+			series = self.system.connect_subflows(endpoint, mitre, http_ts)
 
-		#s = libkernel.Sector()
-		#self.xact_dispatch(s)
-		#s._flow(series)
 		self.controller._flow(series)
 		mitre.m_request(functools.partial(self.dl_response_endpoint, mitre=mitre, tls=tls), req, None)
 		series[0].f_transfer(None)

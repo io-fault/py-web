@@ -957,11 +957,12 @@ class Protocol(object):
 		self.join = self.output_state.send
 		self.join(None)
 
-	def ht_transport_operations(http):
+	def transport_operations(self):
 		f = (False).__bool__
-		return ((http.fork, f, f), (http.join, f, f))
+		return ((self.fork, f, f), (self.join, f, f))
 
-flows.Transports.operation_set[Protocol] = Protocol.ht_transport_operations
+	def transport_api(self):
+		return (self, self.transport_operations())
 
 class Client(flows.Mitre):
 	"""
@@ -974,7 +975,7 @@ class Client(flows.Mitre):
 		self.m_requests = []
 		self.m_route = router
 
-	def f_transfer(self, events, source=None):
+	def f_transfer(self, events):
 		"""
 		# Received a set of response initiations. Join with requests, and
 		# execute the receiver provided to &m_request.
@@ -1011,7 +1012,7 @@ class Client(flows.Mitre):
 			# The request body to be emittted. &None if there is no body to send.
 		"""
 
-		layer, connect = self.f_emit((layer,), self)[0]
+		layer, connect = self.f_emit((layer,))[0]
 		self.m_requests.append((receiver, layer))
 		connect(flow)
 
@@ -1034,7 +1035,7 @@ class Server(flows.Mitre):
 		px = None
 
 		# Reserve response slot and acquire connect callback.
-		responses = self.f_emit([Response() for i in range(len(events))], self)
+		responses = self.f_emit([Response() for i in range(len(events))])
 
 		for req, res in zip(events, responses):
 			ts = libtime.now()
@@ -1048,7 +1049,7 @@ class Server(flows.Mitre):
 
 			yield iox
 
-	def f_transfer(self, events, source=None):
+	def f_transfer(self, events):
 		"""
 		# Accept HTTP &Request's from the remote end and pair them with &Response's.
 		"""
