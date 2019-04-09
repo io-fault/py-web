@@ -705,9 +705,9 @@ def join(
 		repeat=itertools.repeat,
 		zip=zip,
 
-		fc_initiate=flows.Event.initiate,
-		fc_terminate=flows.Event.terminate,
-		fc_transfer=flows.Event.transfer,
+		fc_initiate=flows.fe_initiate,
+		fc_terminate=flows.fe_terminate,
+		fc_transfer=flows.fe_transfer,
 	):
 	"""
 	# Join &flows.Catenate flow events into a proper HTTP stream.
@@ -716,7 +716,7 @@ def join(
 	serializer = protocol.assembly()
 	serialize = serializer.send
 	transfer = ()
-	def layer_tokens(event, layer):
+	def layer_tokens(previous_layer, event, channel_id, layer):
 		assert event == fc_initiate
 		return [
 			(rline, layer.initiation),
@@ -724,11 +724,12 @@ def join(
 			EOH,
 		], layer
 
-	def eom(event, layer):
+	def eom(layer, event, channel_id, param):
 		assert event == fc_terminate
 		return (EOM,), layer
 
-	def data(event, layer, payload, xchunk=protocol.chunk):
+	# XXX: eliminate branch in &data selecting chunk vs content
+	def data(layer, event, channel_id, payload, xchunk=protocol.chunk):
 		nonlocal content, chunk
 		assert event == fc_transfer
 
@@ -750,12 +751,13 @@ def join(
 	}
 	transformer = commands.__getitem__
 
+	layer = None
 	while 1:
 		event = None
 		events = (yield transfer)
 		transfer = []
 		for event in events:
-			out_events, layer = transformer(event[0])(*event)
+			out_events, layer = transformer(event[0])(layer, *event)
 			transfer.extend(serialize(out_events))
 			status[event[0]] += 1
 
@@ -772,10 +774,10 @@ def fork(
 		EOM=protocol.EOM,
 		iter=iter, map=map, len=len,
 		chain=itertools.chain.from_iterable,
-		fc_initiate=flows.Event.initiate,
-		fc_terminate=flows.Event.terminate,
-		fc_transfer=flows.Event.transfer,
-		fc_overflow=flows.Event.overflow,
+		fc_initiate=flows.fe_initiate,
+		fc_terminate=flows.fe_terminate,
+		fc_transfer=flows.fe_transfer,
+		fc_overflow=flows.fe_overflow,
 	):
 	"""
 	# Split an HTTP stream into flow events for use by &flows.Division.
@@ -925,7 +927,7 @@ class Protocol(object):
 
 	@property
 	def open_transactions(self):
-		return self.status[flows.Event.initiate] - self.status[flows.Event.terminate]
+		return self.status[flows.fe_initiate] - self.status[flows.fe_terminate]
 
 	@property
 	def terminated(self):
@@ -974,6 +976,7 @@ class Client(flows.Mitre):
 		self.m_responses = []
 		self.m_requests = []
 		self.m_route = router
+		self._request_id = 0
 
 	def f_transfer(self, events):
 		"""
@@ -1012,9 +1015,11 @@ class Client(flows.Mitre):
 			# The request body to be emittted. &None if there is no body to send.
 		"""
 
-		layer, connect = self.f_emit((layer,))[0]
+		self._request_id += 1
+		channel_id = self._request_id
+		channel_id, connect = self.f_emit((channel_id,))[0]
 		self.m_requests.append((receiver, layer))
-		connect(flow)
+		connect(layer, flow)
 
 class Server(flows.Mitre):
 	"""

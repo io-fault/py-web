@@ -61,8 +61,8 @@ def test_fork(test):
 	g.send(None)
 	r_open, r_close = list(g.send(req()))
 	layer = r_open[1]
-	test/r_open[0] == flows.Event.initiate
-	test/r_close[0] == flows.Event.terminate
+	test/r_open[0] == flows.fe_initiate
+	test/r_close[0] == flows.fe_terminate
 	test/True == (r_close[1] is layer)
 
 	test.isinstance(layer, library.Request)
@@ -74,8 +74,8 @@ def test_fork(test):
 	# Content-Length body.
 	r_open, *body, r_close = list(g.send(req(body=b'content')))
 	layer = r_open[1]
-	test/r_open[0] == flows.Event.initiate
-	test/r_close[0] == flows.Event.terminate
+	test/r_open[0] == flows.fe_initiate
+	test/r_close[0] == flows.fe_terminate
 	test/True == (r_close[1] is layer)
 	test.isinstance(layer, library.Request)
 
@@ -94,8 +94,8 @@ def test_fork(test):
 	# Chunked body.
 	r_open, *body, r_close = list(g.send(req((b'Connection', b'close'), chunks=(b'first\n', b'second\n'))))
 	layer = r_open[1]
-	test/r_open[0] == flows.Event.initiate
-	test/r_close[0] == flows.Event.terminate
+	test/r_open[0] == flows.fe_initiate
+	test/r_close[0] == flows.fe_terminate
 	test/True == (r_close[1] is layer)
 	test.isinstance(layer, library.Request)
 
@@ -143,7 +143,7 @@ def test_Protocol(test):
 	&library.join together for use with &flows.Transports.
 	"""
 
-	ctx = libtest.Context()
+	ctx = libtest.Executable()
 	ctl = libtest.Root()
 	S = libkernel.Sector()
 	S.context = ctx
@@ -151,20 +151,20 @@ def test_Protocol(test):
 	S.actuate()
 
 	http = library.Protocol.server()
-	fi, fo = flows.Transports.create((http,))
+	fi, fo = flows.Transports.create((http.transport_api(),))
 	ic = flows.Collection.list()
 	oc = flows.Collection.list()
 
-	S.process((fi, fo, ic, oc))
+	list(map(S.dispatch, [fi, fo, ic, oc]))
 	fi.f_connect(ic)
 	fo.f_connect(oc)
 
 	# Replay of test_fork for sanity.
-	fi.process(req())
+	fi.f_transfer(req())
 	r_open, r_close = ic.c_storage[0]
 	layer = r_open[1]
-	test/r_open[0] == flows.Event.initiate
-	test/r_close[0] == flows.Event.terminate
+	test/r_open[0] == flows.fe_initiate
+	test/r_close[0] == flows.fe_terminate
 	test/True == (r_close[1] is layer)
 
 	test.isinstance(layer, library.Request)

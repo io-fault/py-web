@@ -204,7 +204,7 @@ class Paths(object):
 		else:
 			px.host.h_error(404, path, query, px, None)
 
-class Host(libkernel.Interface):
+class Host(libkernel.Context):
 	"""
 	# An HTTP Host interface for managing routing of service connections,
 	# and handling the representation of error cases.
@@ -916,7 +916,7 @@ class Files(object):
 
 		return rsize, ranges
 
-class Agent(libkernel.Interface):
+class Agent(libkernel.Context):
 	"""
 	# HTTP User Agent interface for client &Network contexts.
 
@@ -1026,7 +1026,6 @@ class Agent(libkernel.Interface):
 		# Open a client connection and return the actuated &Client instance.
 		"""
 
-		global http
 		hc = http.Client.open(self, endpoint, transports=transports)
 		self.connections[endpoint] = hc
 		self.process(hc)
