@@ -51,6 +51,7 @@ except:
 	securtiy_context = None
 
 class Download(libkernel.Executable):
+	dl_tls = None
 	dl_start_time = None
 	dl_transfer_counter = None
 	dl_content_length = None
@@ -197,32 +198,25 @@ class Download(libkernel.Executable):
 
 		mitre = http.Mitre.client()
 		inv = self.dl_request(struct)
+		tp = kio.Transport.from_endpoint(self.system.connect(endpoint))
+
 		if struct['scheme'] == 'https':
 			tls_transport = security_context.connect(struct['host'].encode('idna'))
 			tls_ts = (tls_transport, kio.security_operations(tls_transport))
 			tls_channels = (('security', tls_transport), kflows.Transports.create([tls_ts]))
 			self.dl_tls = tls_transport
 
-			tp = kio.Transport.from_stack([
-				self.system.connect(endpoint),
-				tls_channels,
-				http.allocate_client_protocol()
-			])
+			tp.tp_extend([tls_channels])
 		else:
 			# Transparency
 			self.dl_tls = None
 
-			tp = kio.Transport.from_stack([
-				self.system.connect(endpoint),
-				http.allocate_client_protocol()
-			])
 		xact = kcore.Transaction.create(tp)
 		self.xact_dispatch(xact)
-		tp.tp_connect(mitre)
+		tp.tp_connect(http.allocate_client_protocol(), mitre)
 
 		mitre.m_request(self.dl_response_endpoint, req, None)
-		sockid, (si, so) = tp.tp_get('socket')
-		si.f_transfer(None)
+		tp.io_execute()
 
 	def dl_initialize(self, endpoints):
 		self.dl_identities = []

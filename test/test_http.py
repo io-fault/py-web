@@ -325,15 +325,12 @@ def test_client_transport(test):
 	end = flows.Collection.list()
 	start = flows.Channel()
 
-	t = kio.Transport.from_stack([
-		(('test', None), (start, end)),
-		library.allocate_client_protocol()
-	])
+	t = kio.Transport.from_endpoint((('test', None), (start, end)))
 	S.dispatch(kcore.Transaction.create(t))
 	ctx()
 
 	m = library.Mitre.client()
-	t.tp_connect(m)
+	t.tp_connect(library.allocate_client_protocol(), m)
 	ctx()
 	inv = library.RInvocation(None, b'GET', b'/test', [])
 	m.m_request(add, inv, None)
@@ -372,15 +369,12 @@ def test_server_transport(test):
 	end = flows.Collection.list()
 	start = flows.Channel()
 
-	t = kio.Transport.from_stack([
-		(('test', None), (start, end)),
-		library.allocate_server_protocol()
-	])
+	t = kio.Transport.from_endpoint((('test', None), (start, end)))
 	S.dispatch(kcore.Transaction.create(t))
 	ctx()
 
 	m = library.Mitre.server(add)
-	t.tp_connect(m)
+	t.tp_connect(library.allocate_server_protocol(), m)
 	ctx()
 
 	start.f_transfer([b"POST /test HTTP/1.1\r\n"])

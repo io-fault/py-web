@@ -753,7 +753,6 @@ def fork(
 		fc_initiate=flows.fe_initiate,
 		fc_terminate=flows.fe_terminate,
 		fc_transfer=flows.fe_transfer,
-		fc_overflow=flows.fe_overflow,
 	):
 	"""
 	# Split an HTTP stream into flow events for use by &flows.Division.
