@@ -14,22 +14,24 @@ import functools
 import collections
 import itertools
 
-import operator
-
-from ..computation import library as libc
 from ..time import library as libtime
 from ..routes import library as libroutes
-
-from ..internet import http as protocol
-from ..internet import media
-
 from ..system import memory
 
-from ..kernel import library as libkernel
+from ..internet.data import http as protocoldata # On disk (shared) hash for this is preferred.
+from ..internet import http as protocolcore
+
+from ..internet import media
+
+from ..kernel import core
 from ..kernel import flows
 
+import operator
+from ..computation import library as libc
 length_string = libc.compose(operator.methodcaller('encode', 'utf-8'), str, len)
 length_strings = libc.compose(operator.methodcaller('encode', 'utf-8'), str, sum, functools.partial(map,len))
+del libc, operator
+
 HeaderSequence = typing.Sequence[typing.Tuple[bytes, bytes]]
 
 def decode_number(string, int=int):
@@ -76,63 +78,119 @@ def ranges(length, range_header):
 
 			yield (decode_number(start), stop)
 
-class Layer(libkernel.Layer):
+class Structures(object):
 	"""
-	# The HTTP layer of a connection; superclass of &Request and &Response that provide
-	# access to the parameters of a &Transaction.
+	# Manages a sequence of HTTP and cached access to specific ones.
 
-	# [ Properties ]
-
-	# /cached_headers/
-		# The HTTP headers that will be available inside a &dict instance
-		# as well as the canonical header sequence that preserves order.
-
-	# /(&HeaderSequence)`header_sequence`/
-		# The sequence of headers.
-
-	# /(&dict)`headers`/
-		# The mapping of headers available in the &header_sequence.
-
-	# /channel/
-		# The stream identifier. For HTTP/2.0, this identifies channel
-		# being used for facilitating the request or response.
+	# Primarily used to extract information from received headers, but also useful
+	# for preparing headers to be sent.
 	"""
 
-	protocol = 'http'
-	version = 1
-	channel = None
+	def __init__(self, headers:HeaderSequence, *local:bytes):
+		"""
+		# Create a cache for a sequence of headers directly stored.
+
+		# [ Parameters ]
+		# /headers/
+			# The sequence of pairs designating the storage area to use.
+		# /local/
+			# Additional headers that should have cached access.
+		"""
+		self.cache = {k.lower():None for k in local}
+		self.cookies = []
+		self.headers = headers
+		self._init_headers(headers)
+
+	def __str__(self):
+		return '\n'.join([
+			': '.join([x.decode('ascii'), y.decode('ascii')])
+			for x, y in self.headers
+		])
+
+	def _init_headers(self, headers):
+		"""
+		# Set the headers to be cached and structured for use by an application.
+		"""
+
+		ch = self.cached_headers
+		c = self.cache
+		for k, v in headers:
+			k = k.lower()
+
+			if k in c:
+				c[k] = v
+			elif k in {b'set-cookie', b'cookie'}:
+				self.cookies.append(v)
+			elif k in ch:
+				# Used to support cached headers local to an instance.
+				c[k] = v
+
+		return self
 
 	@property
-	def content(self):
+	def upgrade(self) -> bool:
 		"""
-		# Whether the Layer Context is associated with content.
+		# Whether or not the request looking to perform protocol substitution.
 		"""
-		return self.length is not None
+
+		return self.connection == b'upgrade'
 
 	@property
-	def length(self):
+	def content(self) -> bool:
+		"""
+		# Whether the headers indicate an associated body.
+		"""
+		cl = self.cache.get(b'content-length')
+		if cl is not None:
+			return True
+
+		return self.cache.get(b'transfer-encoding') == b'chunked'
+
+	@property
+	def length(self) -> typing.Optional[int]:
 		"""
 		# The length of the content; positive if exact, &None if no content, and -1 if arbitrary.
-		# For HTTP, arbitrary using chunked transfer encoding is used.
+		# For HTTP, arbitrary triggers chunked transfer encoding.
 		"""
 
-		cl = self.headers.get(b'content-length')
+		cl = self.cache.get(b'content-length')
 		if cl is not None:
 			return int(cl.decode('ascii'))
 
-		te = self.headers.get(b'transfer-encoding')
+		te = self.cache.get(b'transfer-encoding')
 		if te is not None and te.lower().strip() == b'chunked':
 			return -1
 
 		# no entity body
 		return None
 
+	def declare_content_length(self, length:int):
+		"""
+		# Add a content length header.
+		"""
+
+		assert length >= 0
+
+		hs = self.headers
+		el = str(length).encode('ascii')
+
+		self.cache[b'content-length'] = el
+		hs.append((b'Content-Length', el))
+
+	def declare_variable_content(self):
+		"""
+		# Add header for chunked transfer encoding.
+		"""
+
+		hs = self.headers
+		hs.append((b'Transfer-Encoding', b'chunked'))
+
 	def byte_ranges(self, length):
 		"""
 		# The byte ranges of the request.
 		"""
 
-		range_str = self.headers.get(b'range')
+		range_str = self.cache.get(b'range')
 		return ranges(length, range_str)
 
 	@property
@@ -143,7 +201,7 @@ class Layer(libkernel.Layer):
 		# (octets)`1` and &False if (octets)`0`.
 		"""
 
-		x = self.headers.get(b'upgrade-insecure-requests')
+		x = self.cache.get(b'upgrade-insecure-requests')
 		if x is None:
 			return None
 		elif x == b'1':
@@ -160,6 +218,7 @@ class Layer(libkernel.Layer):
 			b'Host',
 			b'Upgrade-Insecure-Requests',
 			b'Range',
+			b'Expect',
 
 			b'Transfer-Encoding',
 			b'Transfer-Extension',
@@ -173,18 +232,25 @@ class Layer(libkernel.Layer):
 
 			b'Server',
 			b'User-Agent',
+			b'From',
 			b'P3P',
 
 			b'Accept',
 			b'Accept-Encoding',
 			b'Accept-Language',
+			b'Accept-Ranges',
+			b'Accept-Charset',
 
 			b'Content-Type',
 			b'Content-Language',
 			b'Content-Length',
+			b'Content-Range',
+			b'Content-Location',
+			b'Content-Encoding',
 
 			b'Cache-Control',
 			b'ETag',
+			b'Expires',
 			b'If-Match',
 			b'If-Modified-Since',
 			b'If-None-Match',
@@ -193,12 +259,16 @@ class Layer(libkernel.Layer):
 
 			b'Authorization',
 			b'WWW-Authenticate',
+			b'Proxy-Authenticate',
+			b'Proxy-Authorization',
 
 			b'Location',
 			b'Max-Forwards',
 
 			b'Via',
 			b'Vary',
+
+			b'X-Forwarded-For',
 		]
 	)
 
@@ -207,7 +277,7 @@ class Layer(libkernel.Layer):
 		"""
 		# Return the connection header stripped and lowered or `b''` if no header present.
 		"""
-		return self.headers.get(b'connection', b'').strip().lower()
+		return self.cache.get(b'connection', b'').strip().lower()
 
 	@staticmethod
 	@functools.lru_cache(32)
@@ -227,7 +297,10 @@ class Layer(libkernel.Layer):
 		# Structured form of the Accept header.
 		"""
 
-		return self.media_range_cache(self.headers.get(b'accept'))
+		accept = self.cache.get(b'accept')
+		if accept is None:
+			return None
+		return self.media_range_cache(accept)
 
 	@property
 	def media_type(self) -> media.Type:
@@ -254,7 +327,7 @@ class Layer(libkernel.Layer):
 		"""
 		# Decoded host header.
 		"""
-		return self.headers.get(b'host', b'').decode('idna')
+		return self.cache.get(b'host', b'').decode('idna')
 
 	@property
 	def encoding(self) -> str:
@@ -264,236 +337,150 @@ class Layer(libkernel.Layer):
 		pass
 
 	@property
-	def terminal(self) -> bool:
+	def final(self) -> bool:
 		"""
-		# Whether this is the last request or response in the connection.
+		# Whether this is suppoed to be the last transaction in the connection.
 		"""
 
-		cxn = self.connection
+		cxn = self.cache.get(b'connection')
+		return cxn == b'close' or not cxn
 
-		if self.version == b'1.0' and cxn != b'keep-alive':
-			return True
+class Invocation(object):
+	"""
+	# An HTTP request received by a service and its determined response headers and status.
 
-		return cxn == b'close'
+	# The parameters should store exact bytes instances that were read by the transport.
+	# Higher-level interfaces, &Structure, should often decode these field accordingly.
+
+	# [ Properties ]
+
+	# /headers/
+		# The sequence of headers held by the parameters of the request.
+	# /method/
+		# The request method held by the parameters.
+	# /path/
+		# The request URI held by the parameters.
+
+	# /status/
+		# The code-description pair designating success or failure.
+		# Usually set by &assign_status.
+	# /response_headers/
+		# Exact sequence of headers that should be serialized to the connection.
+	"""
+
+	projection = False
+	context = None
 
 	@property
-	def substitution(self) -> bool:
-		"""
-		# Whether or not the request looking to perform protocol substitution.
-		"""
-
-		return self.connection == b'upgrade'
+	def headers(self) -> HeaderSequence:
+		return self.parameters['request']['headers']
 
 	@property
-	def cookies(self) -> typing.Sequence:
+	def method(self) -> str:
 		"""
-		# Cookie sequence for retrieved Cookie headers or Set-Cookie headers.
+		# Decoded form of the request's method.
 		"""
+		return self.parameters['request']['method'].decode('ascii')
 
-		self.parameters.get('cookies', ())
-
-	def clear(self):
+	@property
+	def path(self) -> str:
 		"""
-		# Clear all structures used to make up the Layer Context;
-		# &initiate will need to be called again.
+		# Decoded form of the request URI's path.
 		"""
+		return self.parameters['request']['path'].decode('ascii')
 
-		self.parameters.clear()
-		self.headers.clear()
-		self.initiation = None
-		self.header_sequence.clear()
+	def declare_output_length(self, length:int):
+		self.response_headers.append((b'Content-Length', str(length).encode('ascii')))
+		self._output_length = length
 
-	def __init__(self, version=b'HTTP/1.1'):
-		self.parameters = dict()
-		self.headers = dict()
-		self.initiation = None
-		self.header_sequence = []
-		self._version = version
+	def declare_output_chunked(self):
+		self.response_headers.append((b'Transfer-Encoding', b'chunked'))
+		self._output_length = None
+
+	def __init__(self, exit_method, method:bytes, path:bytes, headers:HeaderSequence):
+		self.exit_method = exit_method
+		self.status = None # HTTP response code and string
+		self.response_headers = None
+
+		self.parameters = {
+			'request': {
+				'method': method,
+				'path': path,
+				'headers': headers,
+			},
+		}
+
+	def exit(self):
+		"""
+		# Call the configured exit method signalling the completion of the Request.
+
+		# This is called after all *transfers* associated with the
+		# with the request have been completed. Data may still be in connection
+		# buffers when this is called.
+		"""
+		return self.exit_method()
 
 	def __str__(self):
-		init = " ".join(x.decode('utf-8') for x in (self.initiation or ()))
-		heads = "\n\t".join(x.decode('utf-8') + ': ' + y.decode('utf-8') for (x,y) in self.header_sequence)
+		init = " ".join(str(x) for x in (self.method, self.path))
+		headers = self.headers
+		if not headers:
+			return init
+
+		heads = "\n\t".join(x.decode('ascii') + ': ' + y.decode('ascii') for (x,y) in headers)
 		return init + "\n\t" + heads
 
-	def initiate(self, rline:typing.Tuple[bytes,bytes,bytes]):
+	def set_response_ok(self):
 		"""
-		# Define the Request or Response initial line.
+		# Set response status to OK.
+		# Shorthand for `set_response_status(200, 'OK')`.
+		"""
+		self.status = (200, 'OK')
+		return self
 
-		# Called when the request or response was received from a remote endpoint.
+	def set_response_status(self, code:int, description:str):
 		"""
-		self.initiation = rline
+		# Designate the result of the Protocol Transaction.
+		"""
+		self.status = (code, description)
+		return self
 
-	def add_headers(self, headers, cookies = False, cache = ()):
+	def set_response_headers(self, headers):
 		"""
-		# Accept a set of headers from the remote end or extend the sequence to
-		# be sent to the remote end..
+		# Assign the exact sequence of response headers that are to be processed by a client.
+		# Any headers already present will be forgotten.
+		"""
+		self.response_headers = headers
+		return self
+
+	@classmethod
+	def from_request(Class, rline, headers):
+		"""
+		# Initialize an Invocation using a parsed request line and headers.
+		# Primarily, this is used by &fork in a server context.
 		"""
 
-		self.header_sequence += headers
+		method, path, version = rline
+		return Class(None, method, path, headers)
 
-		for k, v in headers:
-			k = k.lower()
-			if k in self.cached_headers:
-				self.headers[k] = v
-			elif k in {b'set-cookie', b'cookie'}:
-				cookies = self.parameters.setdefault('cookies', list())
-				cookies.append(v)
-			elif k in cache:
-				self.headers[k] = v
-
-	def add_header(self, header, value):
-		"""
-		# Add a single header to the sequence.
-		# Only for use when building a Request or Response to be sent.
-		"""
-		self.header_sequence.append((header, value))
-
-	def trailer(self, headers):
-		"""
-		# Destination of trailer-headers received during chunked transfer encoding.
-		"""
-		pass
-
-class Request(Layer):
+class RInvocation(Invocation):
 	"""
-	# Request portion of an HTTP transaction.
+	# An &Invocation created for projecting a remote request.
+	# Used by clients to formulate a request and to contain the response status and headers.
 	"""
 
-	@property
-	def method(self):
-		return self.initiation[0]
+	projection = True
 
-	@property
-	def path(self):
-		return self.initiation[1]
-
-	@property
-	def version(self):
-		return self.initiation[2]
-
-	def declare_without_content(self, method:bytes, path:str, version:bytes=b'HTTP/1.1'):
-		self.initiate((method, path.encode('utf-8'), version))
-
-	def declare_with_content(self, method:bytes, length:int, path:str, version:bytes=b'HTTP/1.1'):
-		self.initiate((method, path.encode('utf-8'), version))
-		hs = self.header_sequence
-		hm = self.headers
-
-		if length is not None:
-			if length < 0:
-				raise ValueError("content length must be >= 0 or None")
-
-			hs.append((b'Content-Length', str(length).encode('ascii')))
-			hm[b'Content-Length'] = length
-		else:
-			# initialize chunked headers
-			hs.append((b'Transfer-Encoding', b'chunked'))
-			hm[b'transfer-encoding'] = b'chunked'
-
-	@property
-	def GET(self, partial=functools.partial):
-		"""
-		# Initialize as a GET request.
-		"""
-		return partial(self.declare_without_content, b'GET')
-
-	@property
-	def HEAD(self, partial=functools.partial):
-		"""
-		# Initialize as a HEAD request.
-		"""
-		return partial(self.declare_without_content, b'HEAD')
-
-	@property
-	def DELETE(self, partial=functools.partial):
-		"""
-		# Initialize as a DELETE request.
-		"""
-		return partial(self.declare_without_content, b'DELETE')
-
-	@property
-	def TRACE(self, partial=functools.partial):
-		"""
-		# Initialize as a TRACE request.
-		"""
-		return partial(self.declare_without_content, b'TRACE')
-
-	@property
-	def CONNECT(self, partial=functools.partial):
-		"""
-		# Initialize as a CONNECT request.
-		"""
-		return partial(self.declare_without_content, b'CONNECT')
-
-	@property
-	def POST(self, partial=functools.partial):
-		"""
-		# Initialize as a POST request.
-		"""
-		return partial(self.declare_with_content, b'POST')
-
-	@property
-	def PUT(self, partial=functools.partial):
-		"""
-		# Initialize as a PUT request.
-		"""
-		return partial(self.declare_with_content, b'PUT')
-
-class Response(Layer):
-	"""
-	# Response portion of an HTTP transaction.
-	"""
-
-	@property
-	def version(self):
-		return self.initiation[0]
-
-	@property
-	def code(self):
-		return self.initiation[1]
-
-	@property
-	def description(self):
-		return self.initiation[2]
-
-	def result(self, code, description, version=b'HTTP/1.1'):
-		self.initiate((version, str(code).encode('ascii'), description.encode('utf-8')))
-
-	def OK(self, version=b'HTTP/1.1'):
-		self.initiate((version, b'200', b'OK'))
-
-class IO(libkernel.Transport):
+class ProtocolTransaction(core.Executable):
 	"""
 	# HTTP Transaction Context.
+
+	# Manages &io.Transfer transactions or &io.Transport transaction facilitating a client's request.
 	"""
-	http_expect_continue = None
 
-	_xc_ci = None
-	_xc_co = None
-
-	def __init__(self, request:Request, response:Response, ci, co, host):
-		self.host = host
-		self.request = request
-		self.response = response
-		self._xc_ci = ci
-		self._xc_co = co
-
-	def terminate(self, by=None):
-		self.exit()
-
-	def io_connect_input(self, flow:flows.Channel):
-		r = self._xc_ci(flow)
-		del self._xc_ci
-		if self._xc_co is None:
-			self.terminate()
-	xact_ctx_connect_input = io_connect_input
-
-	def io_connect_output(self, flow:flows.Channel):
-		r = self._xc_co(flow)
-		del self._xc_co
-		if self._xc_ci is None:
-			self.terminate()
-	xact_ctx_connect_output = io_connect_output
+	def io_execute(self):
+		"""
+		# Entry point for fulfilling a protocol transaction.
+		"""
 
 	def io_reflect(self):
 		"""
@@ -501,35 +488,26 @@ class IO(libkernel.Transport):
 
 		# Primarily used for performance testing.
 		"""
-
-		f = flows.Channel()
-		self.xact_dispatch(f)
-		self.xact_ctx_connect_output(f)
-		self.xact_ctx_connect_input(f)
+		pass
 
 	def io_write_null(self):
 		"""
 		# Used to send a request or a response without a body.
 		# Necessary to emit the headers of the transaction.
 		"""
-		self.xact_ctx_connect_output(None)
 
 	def io_read_null(self):
 		"""
 		# Used to note that no read will occur.
 		# *Must* be used when no body is expected. Usually called by the &Client or &Server.
-
-		# ! FUTURE:
-			# Throws exception or emits error in cases where body is present.
 		"""
-		self.xact_ctx_connect_input(None)
 
 	@property
 	def http_terminal(self):
 		"""
 		# Whether the Transaction is the last.
 		"""
-		return self.response.terminal
+		return False
 
 	def http_continue(self, headers):
 		"""
@@ -691,87 +669,85 @@ class IO(libkernel.Transport):
 		return f
 
 def join(
-		checksum=None,
+		sequence,
+		protocol_version,
 		status=None,
 
-		rline=protocol.Event.rline,
-		headers=protocol.Event.headers,
-		trailers=protocol.Event.trailers,
-		content=protocol.Event.content,
-		chunk=protocol.Event.chunk,
-		EOH=protocol.EOH,
-		EOM=protocol.EOM,
-
-		repeat=itertools.repeat,
-		zip=zip,
+		rline_ev=protocolcore.Event.rline,
+		headers_ev=protocolcore.Event.headers,
+		trailers_ev=protocolcore.Event.trailers,
+		content=protocolcore.Event.content,
+		chunk=protocolcore.Event.chunk,
+		EOH=protocolcore.EOH,
+		EOM=protocolcore.EOM,
 
 		fc_initiate=flows.fe_initiate,
 		fc_terminate=flows.fe_terminate,
 		fc_transfer=flows.fe_transfer,
 	):
 	"""
-	# Join &flows.Catenate flow events into a proper HTTP stream.
+	# Join flow events into a proper HTTP stream.
 	"""
 
-	serializer = protocol.assembly()
+	serializer = protocolcore.assembly()
 	serialize = serializer.send
 	transfer = ()
-	def layer_tokens(previous_layer, event, channel_id, layer):
+
+	def initiate(event, channel_id, init):
 		assert event == fc_initiate
-		return [
-			(rline, layer.initiation),
-			(headers, layer.header_sequence),
-			EOH,
-		], layer
+		nonlocal commands
 
-	def eom(layer, event, channel_id, param):
-		assert event == fc_terminate
-		return (EOM,), layer
-
-	# XXX: eliminate branch in &data selecting chunk vs content
-	def data(layer, event, channel_id, payload, xchunk=protocol.chunk):
-		nonlocal content, chunk
-		assert event == fc_transfer
-
-		l = layer.length
-		if l is None:
-			raise Exception("content without chunked encoding specified or content length")
-
-		if l >= 0:
-			btype = content
+		rline, headers, content_length = sequence(protocol_version, init)
+		if content_length is None:
+			commands[fc_transfer] = pchunk
 		else:
-			btype = chunk
+			commands[fc_transfer] = pdata
 
-		return [(btype, x) for x in payload], layer
+		return [
+			(rline_ev, rline),
+			(headers_ev, headers),
+			EOH,
+		]
+
+	def eom(event, channel_id, param):
+		assert event == fc_terminate
+		return (EOM,)
+
+	def pdata(event, channel_id, transfer_events):
+		assert event == fc_transfer
+		return [(content, x) for x in transfer_events]
+
+	def pchunk(event, channel_id, transfer_events):
+		assert event == fc_transfer
+		return [(chunk, x) for x in transfer_events]
 
 	commands = {
-		fc_initiate: layer_tokens,
+		fc_initiate: initiate,
 		fc_terminate: eom,
-		fc_transfer: data,
+		fc_transfer: pchunk,
 	}
 	transformer = commands.__getitem__
 
-	layer = None
-	while 1:
+	content_ev = None
+	while True:
 		event = None
 		events = (yield transfer)
 		transfer = []
 		for event in events:
-			out_events, layer = transformer(event[0])(layer, *event)
+			out_events = transformer(event[0])(*event)
 			transfer.extend(serialize(out_events))
-			status[event[0]] += 1
 
 def fork(
-		Layer, overflow,
-		rline=protocol.Event.rline,
-		headers=protocol.Event.headers,
-		trailers=protocol.Event.trailers,
-		content=protocol.Event.content,
-		chunk=protocol.Event.chunk,
-		violation=protocol.Event.violation,
-		bypass=protocol.Event.bypass,
-		EOH=protocol.EOH,
-		EOM=protocol.EOM,
+		allocate, close, overflow,
+		rline=protocolcore.Event.rline,
+		headers=protocolcore.Event.headers,
+		trailers=protocolcore.Event.trailers,
+		content=protocolcore.Event.content,
+		chunk=protocolcore.Event.chunk,
+		violation=protocolcore.Event.violation,
+		bypass=protocolcore.Event.bypass,
+		EOH=protocolcore.EOH,
+		EOM=protocolcore.EOM,
 		iter=iter, map=map, len=len,
 		chain=itertools.chain.from_iterable,
 		fc_initiate=flows.fe_initiate,
@@ -783,27 +759,31 @@ def fork(
 	# Split an HTTP stream into flow events for use by &flows.Division.
 	"""
 
-	tokenizer = protocol.disassembly()
+	tokenizer = protocolcore.disassembly()
 	tokens = tokenizer.send
 
 	close_state = False # header Connection: close
 	events = iter(())
 	flow_events = []
 	layer = None
+	internal_overflow = []
 
 	# Pass exception as terminal Layer context.
 	def http_protocol_violation(data):
 		raise Exception(data)
 
+	http_xact_id = 0
+
 	while not close_state:
 
+		http_xact_id += 1
 		lrline = []
 		lheaders = []
 		local_state = {
 			rline: lrline.extend,
 			headers: lheaders.extend,
 			violation: http_protocol_violation,
-			bypass: overflow.extend,
+			bypass: internal_overflow.extend,
 		}
 
 		headers_received = False
@@ -826,16 +806,9 @@ def fork(
 		# got request or status line and headers for this request
 		assert len(lrline) == 3
 
-		layer = Layer()
-		layer.initiate(lrline[:3])
-		layer.add_headers(lheaders)
+		initiate, rversion = allocate((lrline, lheaders))
 
-		if layer.terminal:
-			# Connection: close present.
-			# generator will exit when the loop completes
-			close_state = True
-
-		flow_events.append((fc_initiate, layer))
+		flow_events.append((fc_initiate, http_xact_id, initiate))
 		##
 		# local_state is used as a catch all
 		# if strictness is desired, it should be implemented here.
@@ -849,7 +822,7 @@ def fork(
 			# extension: handle chunk extension events.
 			trailers: trailer_sequence.extend,
 			violation: http_protocol_violation,
-			bypass: overflow.extend,
+			bypass: internal_overflow.extend,
 		}
 
 		try:
@@ -871,7 +844,7 @@ def fork(
 							# the Distributing instance watches for
 							# obstructions on the receiver and sends them
 							# upstream, so no buffering need to occur here.
-							flow_events.append((fc_transfer, layer, body))
+							flow_events.append((fc_transfer, http_xact_id, body))
 
 							# empty body sequence and reconfigure its callback
 							body = []
@@ -890,13 +863,16 @@ def fork(
 		except GeneratorExit:
 			raise
 		else:
-			flow_events.append((fc_terminate, layer))
+			flow_events.append((fc_terminate, http_xact_id, None))
 			layer = None
 
-	# Close state.
-	# Store overflow for next protocol.
-	#flow_events.append((fc_overflow, b''))
-	overflow.append(b'')
+	# Close state. Signal end.
+	close()
+	# Store overflow for protocol switches.
+	internal_overflow.append(b'')
+	for x in internal_overflow:
+		overflow(x)
+	del internal_overflow[:]
 
 	while True:
 		bypassing = map(tokens, ((yield flow_events)))
@@ -904,169 +880,204 @@ def fork(
 		for x in bypassing:
 			assert x[0] == bypass
 			if x[1]:
-				overflow.append(x[1])
+				overflow(x[1])
 
-class Protocol(object):
+def initiate_server_request(protocol:bytes, invocation):
 	"""
-	# Stack object for &flows.Transports.
+	# Used by clients with &SProtocol.
+	"""
+	p = invocation.parameters['request']
+	l = getattr(invocation, '_output_length', None)
+	return (p['method'], p['path'], protocol), p['headers'], l
 
-	# [ Properties ]
+def initiate_client_response(protocol:bytes, invocation):
+	"""
+	# Used by servers with &SProtocol.
+	"""
+	code, description = (str(x).encode('ascii') for x in invocation.status)
+	l = getattr(invocation, '_output_length', None)
+	return (protocol, code, description), invocation.response_headers, l
 
-	# /overflow/
-		# Transfers that occurred past protocol boundaries. Used during protocol
-		# switching to properly maintain state.
+def allocate_client_request(pair):
+	"""
+	# Used by servers with &RProtocol.
+	"""
+	(method, path, version), headers = pair
+	return Invocation(None, method, path, headers), version
+
+def allocate_server_response(pair):
+	"""
+	# Used by clients with &RProtocol.
+	"""
+	(version, code, description), headers = pair
+	return ((code, description), headers), version
+
+class SProtocol(flows.Protocol):
+	"""
+	# Protocol class sending HTTP messages.
 	"""
 
-	@classmethod
-	def client(Class) -> 'Protocol':
-		return Class(Response)
+	def __init__(self, version:bytes, initiate):
+		self.version = version
+		self._status = collections.Counter()
+		self._state = join(initiate, b'HTTP/1.1', status=self._status)
+		self._join = self._state.send
+		self._join(None)
 
-	@classmethod
-	def server(Class) -> 'Protocol':
-		return Class(Request)
+	def f_transfer(self, event):
+		self.f_emit(self._join(event))
 
-	@property
-	def open_transactions(self):
-		return self.status[flows.fe_initiate] - self.status[flows.fe_terminate]
-
-	@property
-	def terminated(self):
-		return self._output_terminated and self.overflow
-
-	def terminate(self, polarity=0):
-		if polarity == 1:
-			if not self.overflow:
-				# The &fork generator runs forever once outside of the protocol.
-				# If this condition is true, it likely means that an interruption
-				# is occurring.
-				self.overflow.append(b'')
-		elif polarity == -1:
-			self._output_terminated = True
-		else:
-			raise ValueError("invalid polarity")
-
-	def __init__(self, Layer:Layer, selected_version=b'HTTP/1.1'):
-		self.version = selected_version
-
-		self.overflow = []
-		self.input_state = fork(Layer, self.overflow)
-		self.fork = self.input_state.send
-		self.fork(None)
-
-		self._output_terminated = False
-		self.status = collections.Counter()
-		self.output_state = join(status=self.status)
-		self.join = self.output_state.send
-		self.join(None)
-
-	def transport_operations(self):
-		f = (False).__bool__
-		return ((self.fork, f, f), (self.join, f, f))
-
-	def transport_api(self):
-		return (self, self.transport_operations())
-
-class Client(flows.Mitre):
+class RProtocol(flows.Protocol):
 	"""
-	# Mitre initiating requests for an HTTP Connection.
+	# Protocol class receiving HTTP messages.
 	"""
-	Protocol = Protocol.client
+
+	def p_close(self):
+		pass
+
+	def p_correlate(self, send):
+		self.p_send = send
+		send.p_receive = weakref.ref(self)
+
+	def p_overflowing(self):
+		self.start_termination()
+		self.p_overflow = []
+		return self.p_overflow.append
+
+	def __init__(self, version:bytes, allocate):
+		self.version = version
+		self._status = collections.Counter()
+		self._state = fork(allocate, self.p_close, self.p_overflowing) # XXX: weakmethod
+		self._fork = self._state.send
+		self._fork(None)
+
+	def f_transfer(self, event):
+		self.f_emit(self._fork(event))
+
+class Mitre(flows.Mitre):
+	"""
+	# Mitre managing HTTP protocol transactions.
+	"""
 
 	def __init__(self, router):
-		self.m_responses = []
-		self.m_requests = []
-		self.m_route = router
-		self._request_id = 0
+		self.m_router = router
+		self.m_schannels = {}
+		self._protocol_xact_queue = []
+		self._protocol_xact_id = 0
+
+	@classmethod
+	def client(Class):
+		c = Class(None)
+		c._m_process = c.m_correlate
+		return c
+
+	@classmethod
+	def server(Class, router):
+		assert router is not None
+		s = Class(router)
+		s._m_process = s.m_accept
+		return s
 
 	def f_transfer(self, events):
+		# Synchronized on Logical Process Task Queue
+		xq = self._protocol_xact_queue
+		already_queued = bool(xq)
+		xq.extend(events)
+		if not already_queued:
+			self.critical(self.m_execute)
+
+	def m_execute(self):
 		"""
-		# Received a set of response initiations. Join with requests, and
-		# execute the receiver provided to &m_request.
+		# Method enqueued by &f_transfer to flush the protocol transaction queue.
+		# Essentially, an internal method.
+		"""
+		xq = self._protocol_xact_queue
+		self._protocol_xact_queue = []
+		return self._m_process(xq)
+
+	def m_correlate(self, events):
+		"""
+		# Received a set of responses. Join with requests, and
+		# execute the receiver provided by the enqueueing operation.
 		"""
 
-		self.m_responses.extend(events)
-		signal_count = min(len(self.m_responses), len(self.m_requests))
+		for channel_id, response, connect in events:
+			recv, inv = self.m_schannels.pop(channel_id)
+			inv.set_response_status(*response[0]).set_response_headers(response[1])
+			inv._connect_input = connect
+			inv._channels = (channel_id, channel_id)
+			recv(self, inv)
 
-		reqs = self.m_requests[:signal_count]
-		resp = self.m_responses[:signal_count]
-		del self.m_requests[:signal_count]
-		del self.m_responses[:signal_count]
-
-		for req, res in zip(reqs, resp):
-			rec = req[0]
-			rec(self, req[1], *res)
-
-	def m_request(self,
-			receiver:libkernel.ProtocolTransactionEndpoint,
-			layer:Request,
-			flow:flows.Channel=None
-		):
+	def m_accept(self, events, partial=functools.partial):
 		"""
-		# Emit an HTTP request. The corresponding response will be joined to form a
-		# &ProtocolTransaction instance.
+		# Accept a sequence of requests from a client configured remote endpoint.
+		"""
+
+		self._protocol_xact_id += len(events)
+
+		cat = self.f_downstream
+		for channel_id, inv, connect in events:
+			cat.int_reserve(channel_id)
+			inv._connect_input = connect
+			inv._output = (cat, channel_id)
+			inv._connect_output = partial(cat.int_connect, channel_id)
+			self.m_router(self, inv)
+
+	def m_request(self, receiver, invocation:RInvocation, flow:typing.Optional[flows.Relay]):
+		"""
+		# [ Parameters ]
+
+		# /receiver/
+			# Callback performed when a response has been received and is ready to be processed.
+		# /invocation/
+			# The request line and headers.
+		# /flow/
+			# The &flows.Relay to connect to input. &None, if there is no entity body.
+			# There is no expectation of actuation.
+		"""
+
+		self._protocol_xact_id += 1
+		channel_id = self._protocol_xact_id
+		cat = self.f_downstream
+
+		cat.int_reserve(channel_id)
+		self.m_schannels[channel_id] = (receiver, invocation)
+		cat.int_connect(channel_id, invocation, flow)
+
+	def m_connect(self, receiver, invocation:RInvocation):
+		"""
+		# Prepare a transport layer using a request.
 
 		# [ Parameters ]
 
 		# /receiver/
-			# The callback to be performed when a response for the request is received.
-		# /layer/
-			# The request layer context. &Request.
-		# /flow/
-			# The request body to be emittted. &None if there is no body to send.
+			# Callback performed when a response has been received and is ready to be processed.
+		# /invocation/
+			# The request line and headers.
 		"""
 
-		self._request_id += 1
-		channel_id = self._request_id
-		channel_id, connect = self.f_emit((channel_id,))[0]
-		self.m_requests.append((receiver, layer))
-		connect(layer, flow)
+		self._protocol_xact_id += 1
+		channel_id = self._protocol_xact_id
+		cat = self.f_downstream
 
-class Server(flows.Mitre):
-	"""
-	# Mitre managing incoming server connections for HTTP.
-	"""
-	Protocol = Protocol.server
+		cat.int_reserve(channel_id)
+		self.m_schannels[channel_id] = (receiver, invocation)
+		p_input = flows.Receiver(None)
+		p_output = flows.Relay(cat, channel_id)
+		invocation._input = p_input
+		invocation._output = p_output
+		cat.int_connect(channel_id, invocation, p_output)
 
-	def __init__(self, ref, router):
-		self.m_reference = ref
-		self.m_route = router
+		return invocation, (p_input, p_output)
 
-	def _init_xacts(self, events):
-		"""
-		# Reserve respone slots and yield the constructed &IO instances.
-		"""
+def allocate_client_protocol(version:bytes=b'HTTP/1.1'):
+	pi = RProtocol(version, allocate_server_response)
+	po = SProtocol(version, initiate_server_request)
+	index = ('http', None)
+	return (index, (pi, po))
 
-		cxn = self.controller
-		px = None
-
-		# Reserve response slot and acquire connect callback.
-		responses = self.f_emit([Response() for i in range(len(events))])
-
-		for req, res in zip(events, responses):
-			ts = libtime.now()
-			io = IO(req[0], res[0], req[1], res[1], self.m_reference)
-			iox = libkernel.Transaction.create(io)
-
-			datetime = ts.select('rfc').encode('utf-8')
-			io.response.add_header(b'Date', datetime)
-			if req[0].terminal:
-				res[0].add_header(b'Connection', b'close')
-
-			yield iox
-
-	def f_transfer(self, events):
-		"""
-		# Accept HTTP &Request's from the remote end and pair them with &Response's.
-		"""
-
-		cxn = self.controller
-		dispatch = cxn.dispatch
-		iox = None
-
-		xacts = list(self._init_xacts(events))
-		for iox in xacts:
-			dispatch(iox)
-			self.m_route(iox, iox.xact_context)
-
-		if iox is not None and iox.xact_context.request.terminal:
-			self._f_terminated()
+def allocate_server_protocol(version:bytes=b'HTTP/1.1'):
+	pi = RProtocol(version, allocate_client_request)
+	po = SProtocol(version, initiate_client_response)
+	index = ('http', None)
+	return (index, (pi, po))

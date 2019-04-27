@@ -36,16 +36,17 @@ from ...internet import host
 from ...computation import library as libc
 
 from ...kernel import library as libkernel
-from ...kernel import flows
+from ...kernel import core as kcore
+from ...kernel import flows as kflows
+from ...kernel import io as kio
 from .. import http
 
+from ...security.library import pki
 certificates = os.environ.get('SSL_CERT_FILE', '/etc/ssl/cert.pem')
 try:
-	from ...kernel import security
 	with open(certificates, 'rb') as f:
-		security_context = security.public(certificates=(f.read(),))
+		security_context = pki.Context(certificates=(f.read(),))
 except:
-	raise
 	security = None
 	securtiy_context = None
 
@@ -71,7 +72,8 @@ class Download(libkernel.Executable):
 		)
 		file.buffer.write(b''.join(screen.render(phrase)) + screen.reset_text())
 
-	def dl_response_collected(self, target_path, mitre, sector, request, response, flow):
+	def dl_response_collected(self, invocation):
+		target_path = invocation._path
 		self.dl_status()
 
 		from ...terminal.format import path
@@ -83,53 +85,35 @@ class Download(libkernel.Executable):
 
 		self.exe_invocation.exit(0)
 
+	def xact_exit(self, subxact):
+		if subxact == self._dl_xfer:
+			self.dl_response_collected(subxact.xact_context._invocation)
+
 	def dl_request(self, struct):
-		req = http.Request()
 		path = ri.http(struct)
-
-		req.initiate((b'GET', b'/'+path.encode('utf-8'), b'HTTP/1.1'))
-		req.add_headers([
+		headers = [
 			(b'Host', struct['host'].encode('idna')),
-			(b'Accept', b'application/octet-stream, */*'),
-			(b'User-Agent', b'curl/5.0'),
+			(b'Accept', b"application/octet-stream, */*"),
+			(b'User-Agent', b"curl/5.0"),
 			(b'Connection', b'close'),
-		])
+		]
 
-		req.resource_indicator = struct
-		return req
+		req = http.Invocation(None, b'GET', b'/'+path.encode('utf-8'), headers)
+		req.parameters['ri'] = struct
 
-	def dl_dispatch(self, url):
-		struct, endpoint = url # ri.parse(x), libkernel.Endpoint(y)
-		req = self.dl_request(struct)
-
-		from ...terminal.format.url import f_struct
-		from ...terminal import matrix
-		screen = matrix.Screen()
-		struct['fragment'] = '[%s]' %(str(endpoint),)
-		self.dl_pprint(sys.stderr, screen, f_struct(struct))
-		sys.stderr.write('\n')
-		sys.stderr.buffer.flush()
-
-		mitre = http.Client(None)
-		http_ts = http.Protocol.client().transport_api()
-
-		if struct['scheme'] == 'https':
-			tls = security_context.connect(struct['host'].encode('idna'))
-			tls_ts = (tls, security.operations(tls))
-			series = self.system.connect_subflows(endpoint, mitre, tls_ts, http_ts)
+		if struct['path']:
+			path = files.Path.from_path(struct['path'][-1])
 		else:
-			tls = None
-			series = self.system.connect_subflows(endpoint, mitre, http_ts)
+			path = files.Path.from_path('index')
 
-		self.controller._flow(series)
-		mitre.m_request(functools.partial(self.dl_response_endpoint, mitre=mitre, tls=tls), req, None)
-		series[0].f_transfer(None)
+		req._path = path
 
-		return series[-1]
+		return req
 
 	def dl_status(self, time=None, next=libtime.Measure.of(second=1)):
 		radar = self.dl_radar
 		counter = self.dl_transfer_counter
+
 		for x in self.dl_identities:
 			radar.track(x, 0)
 			units, time = (radar.rate(x, libtime.Measure.of(second=8)))
@@ -156,13 +140,13 @@ class Download(libkernel.Executable):
 
 		return next
 
-	def dl_response_endpoint(self, client, request, response, connect, transports=(), mitre=None, tls=None):
-		sector = client.sector
-		self.dl_content_length = response.length
+	def dl_response_endpoint(self, client, invocation):
+		rstruct = http.Structures(invocation.response_headers)
+		self.dl_content_length = rstruct.length
+		path = invocation._path
 
-		print(request)
-
-		if tls:
+		if self.dl_tls:
+			tls = self.dl_tls
 			i = tls.status()
 			print('%s [%s]' %(i[0], i[3]))
 			print('\thostname:', tls.hostname.decode('idna'))
@@ -178,33 +162,67 @@ class Download(libkernel.Executable):
 		else:
 			print('TLS [none: no transport layer security]')
 
-		print(response)
-
-		ri = request.resource_indicator
-		if ri["path"]:
-			path = files.Path.from_path(ri["path"][-1])
-		else:
-			path = files.Path.from_path('index')
+		print(rstruct)
 
 		self.dl_identities.append(path)
 		self.dl_status()
 
 		target = client.system.append_file(str(path))
-		sector.dispatch(target)
-
-		trace = flows.Traces()
-
+		trace = kflows.Traces()
 		track = libc.compose(functools.partial(self.dl_radar.track, path), libc.sum_lengths)
 		trace.monitor("rate", track)
 
 		track = libc.partial(self.dl_count, path)
 		trace.monitor("total", track)
 
-		sector.dispatch(trace)
-		trace.f_connect(target)
+		xact = kcore.Transaction.create(kio.Transfer())
+		self.xact_dispatch(xact)
+		routput = kflows.Receiver(invocation._connect_input)
+		xact.xact_context.io_flow([routput, trace, target])
+		xact.xact_context._invocation = invocation
+		self._dl_xfer = xact
+		routput.f_transfer(None)
 
-		target.atexit(functools.partial(self.dl_response_collected, path, mitre, sector, request, response))
-		connect(trace)
+	def dl_dispatch(self, url):
+		struct, endpoint = url # ri.parse(x), libkernel.Endpoint(y)
+		req = self.dl_request(struct)
+
+		from ...terminal.format.url import f_struct
+		from ...terminal import matrix
+		screen = matrix.Screen()
+		struct['fragment'] = '[%s]' %(str(endpoint),)
+		self.dl_pprint(sys.stderr, screen, f_struct(struct))
+		sys.stderr.write('\n')
+		sys.stderr.buffer.flush()
+
+		mitre = http.Mitre.client()
+		inv = self.dl_request(struct)
+		if struct['scheme'] == 'https':
+			tls_transport = security_context.connect(struct['host'].encode('idna'))
+			tls_ts = (tls_transport, kio.security_operations(tls_transport))
+			tls_channels = (('security', tls_transport), kflows.Transports.create([tls_ts]))
+			self.dl_tls = tls_transport
+
+			tp = kio.Transport.from_stack([
+				self.system.connect(endpoint),
+				tls_channels,
+				http.allocate_client_protocol()
+			])
+		else:
+			# Transparency
+			self.dl_tls = None
+
+			tp = kio.Transport.from_stack([
+				self.system.connect(endpoint),
+				http.allocate_client_protocol()
+			])
+		xact = kcore.Transaction.create(tp)
+		self.xact_dispatch(xact)
+		tp.tp_connect(mitre)
+
+		mitre.m_request(self.dl_response_endpoint, req, None)
+		sockid, (si, so) = tp.tp_get('socket')
+		si.f_transfer(None)
 
 	def dl_initialize(self, endpoints):
 		self.dl_identities = []

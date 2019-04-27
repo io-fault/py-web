@@ -7,7 +7,42 @@ from .. import http as library
 
 from ...kernel import library as libkernel
 from ...kernel import flows
-from ...kernel.test import library as libtest
+from ...kernel import core as kcore
+from ...kernel import io as kio
+from ...kernel.test import library as testlib
+
+def test_Invocation_instantiate(test):
+	"""
+	# - &library.Invocation
+
+	# Instantiation expectations.
+	"""
+	inv = library.Invocation(None, b'GET', b"/", [])
+
+	test/inv.method == 'GET'
+	test/inv.path == "/"
+	test/inv.headers == []
+	test/str(inv) == "GET /"
+
+	test/inv.status == None
+	test/inv.response_headers == None
+
+	inv = library.Invocation(None, b'POST', b"/resource", [])
+	test/inv.method == 'POST'
+	test/inv.path == "/resource"
+
+def test_Invocation_set_response(test):
+	"""
+	# - &library.Invocation
+
+	# Assignment methods specifying response status and headers.
+	"""
+	inv = library.Invocation(None, b'GET', b"/", [])
+
+	inv.set_response_headers([(b'Test', b'Value')])
+	inv.set_response_status(200, b'OK')
+	test/inv.status == (200, b'OK')
+	test/inv.response_headers == [(b'Test', b'Value')]
 
 def req(*headers, host=b'test.fault.io', version=b'HTTP/1.1', uri=b'/test/fault.io.http', method=b'GET',
 		body=b'', ctype=b'text/plain', chunks=()
@@ -39,7 +74,7 @@ def req(*headers, host=b'test.fault.io', version=b'HTTP/1.1', uri=b'/test/fault.
 
 def test_ranges(test):
 	"""
-	Check Range header parsing.
+	# Check Range header parsing.
 	"""
 	test/list(library.ranges(0, None)) == [(0, 0)]
 	test/list(library.ranges(123, None)) == [(0, 123)]
@@ -52,126 +87,343 @@ def test_ranges(test):
 	# Missing starts means last n-bytes.
 	test/list(library.ranges(100, b"bytes=-50")) == [(50, 100)]
 
-def test_fork(test):
+allocate_transparent = (lambda x: (('line+headers',) + x, b'VERSION'))
+
+def test_fork_headers_no_content(test):
 	"""
-	Validate requests without bodies, sized bodies, and chunked transfers.
+	# - &library.fork
 	"""
+	closed = False
+	def close():
+		nonlocal closed
+		closed = True
 	overflow = []
-	g = library.fork(library.Request, overflow)
+
+	g = library.fork(allocate_transparent, close, overflow.append)
 	g.send(None)
+
 	r_open, r_close = list(g.send(req()))
-	layer = r_open[1]
+	qual, iline, headers = r_open[-1]
 	test/r_open[0] == flows.fe_initiate
 	test/r_close[0] == flows.fe_terminate
-	test/True == (r_close[1] is layer)
+	test/r_close[1] == r_open[1]
 
-	test.isinstance(layer, library.Request)
-	test/layer.method == b'GET'
-	test/layer.path == b'/test/fault.io.http'
-	test/layer.version == b'HTTP/1.1'
-	test/layer.host == 'test.fault.io'
+	test/qual == 'line+headers'
+	test/iline[0] == b'GET'
+	test/iline[1] == b'/test/fault.io.http'
+	test/iline[2] == b'HTTP/1.1'
+	hd = dict(headers)
+	test/hd[b'Host'] == b'test.fault.io'
 
 	# Content-Length body.
 	r_open, *body, r_close = list(g.send(req(body=b'content')))
-	layer = r_open[1]
+	qual, iline, headers = r_open[-1]
+	test/qual == 'line+headers'
 	test/r_open[0] == flows.fe_initiate
 	test/r_close[0] == flows.fe_terminate
-	test/True == (r_close[1] is layer)
-	test.isinstance(layer, library.Request)
+	test/r_close[1] == r_open[1]
 
-	test.isinstance(layer, library.Request)
-	test/layer.method == b'GET'
-	test/layer.path == b'/test/fault.io.http'
-	test/layer.version == b'HTTP/1.1'
-	test/layer.host == 'test.fault.io'
+	test/iline[0] == b'GET'
+	test/iline[1] == b'/test/fault.io.http'
+	test/iline[2] == b'HTTP/1.1'
+	hd = dict(headers)
+	test/hd[b'Host'] == b'test.fault.io'
 
 	total_content = b''
 	for event in body:
-		test/event[1] == layer
+		test/event[1] == r_open[1]
 		total_content += b''.join(event[2])
 	test/total_content == b'content'
 
 	# Chunked body.
 	r_open, *body, r_close = list(g.send(req((b'Connection', b'close'), chunks=(b'first\n', b'second\n'))))
 	layer = r_open[1]
+	qual, iline, headers = r_open[-1]
 	test/r_open[0] == flows.fe_initiate
 	test/r_close[0] == flows.fe_terminate
-	test/True == (r_close[1] is layer)
-	test.isinstance(layer, library.Request)
+	test/r_open[1] == r_close[1]
 
-	test.isinstance(layer, library.Request)
-	test/layer.method == b'GET'
-	test/layer.path == b'/test/fault.io.http'
-	test/layer.version == b'HTTP/1.1'
-	test/layer.host == 'test.fault.io'
-	test/layer.terminal == True
+	test/iline[0] == b'GET'
+	test/iline[1] == b'/test/fault.io.http'
+	test/iline[2] == b'HTTP/1.1'
+	hd = dict(headers)
+	test/hd[b'Host'] == b'test.fault.io'
+	test/hd[b'Connection'] == b'close'
 
 	total_content = b''
 	for event in body:
-		test/event[1] == layer
+		test/event[1] == r_open[1]
 		total_content += b''.join(event[2])
 	test/total_content == b'first\nsecond\n'
 
 def test_join(test):
-	overflow = []
 	import collections
+
+	overflow = []
+	def ident(x):
+		l, h = x
+		if dict(h).get(b'Transfer-Encoding') == b'chunked':
+			return None
+		return 0
+
+	allocate_transparent = (lambda x: ((x + (ident(x),)), b'VERSION'))
+	initiate_transparent = (lambda x,y: y)
+
 	c = collections.Counter()
-	j = library.join(status=c)
-	g = library.fork(library.Request, overflow)
+	j = library.join(initiate_transparent, b'HTTP/1.1', status=c)
+	g = library.fork(allocate_transparent, (lambda: None), overflow.append)
 	g.send(None); j.send(None)
 
 	r = req()
 	events = list(g.send(r))
-	layer = events[0][1]
+	layer = events[0][-1]
 	test/b''.join(list(j.send(events))) == r[0]
 
 	r = req(chunks=(b'first\n', b'second\n'))
 	events = list(g.send(r))
-	layer = events[0][1]
+	layer = events[0][-1]
 	test/b''.join(list(j.send(events))) == r[0]
 
 	r = req(body=(b'first\n' + b'second\n'))
 	events = list(g.send(r))
-	layer = events[0][1]
+	layer = events[0][-1]
 	test/b''.join(list(j.send(events))) == r[0]
 
-def test_Protocol(test):
+def test_Structures_local(test):
 	"""
-	Validate requests without bodies, sized bodies, and chunked transfers.
+	# - &library.Structures
 
-	More of an integration test as its purpose is to tie &library.fork and
-	&library.join together for use with &flows.Transports.
+	# Check caching of local headers.
 	"""
+	headers = [
+		(b'Server', b'fault/0'),
+		(b'Host', b'fault.io'),
+		(b'Custom', b'data'),
+	]
+	s = library.Structures(headers, b'Custom')
 
-	ctx = libtest.Executable()
-	ctl = libtest.Root()
-	S = libkernel.Sector()
-	S.context = ctx
-	S.controller = ctl
-	S.actuate()
+	test/s.cache[b'host'] == b'fault.io'
+	test/s.cache[b'custom'] == b'data'
 
-	http = library.Protocol.server()
-	fi, fo = flows.Transports.create((http.transport_api(),))
-	ic = flows.Collection.list()
-	oc = flows.Collection.list()
+def test_Structures_cookies(test):
+	"""
+	# - &library.Structures
+	"""
+	pass
 
-	list(map(S.dispatch, [fi, fo, ic, oc]))
-	fi.f_connect(ic)
-	fo.f_connect(oc)
+def test_Client_request(test):
+	"""
+	# - &library.Mitre
+	"""
+	l = []
+	add = (lambda x,y: l.append((x,y)))
+	ctx, S = testlib.sector()
 
-	# Replay of test_fork for sanity.
-	fi.f_transfer(req())
-	r_open, r_close = ic.c_storage[0]
-	layer = r_open[1]
-	test/r_open[0] == flows.fe_initiate
-	test/r_close[0] == flows.fe_terminate
-	test/True == (r_close[1] is layer)
+	end = flows.Collection.list()
+	cat = flows.Catenation()
+	c = library.Mitre.client()
 
-	test.isinstance(layer, library.Request)
-	test/layer.method == b'GET'
-	test/layer.path == b'/test/fault.io.http'
-	test/layer.version == b'HTTP/1.1'
-	test/layer.host == 'test.fault.io'
+	c.f_connect(cat)
+	cat.f_connect(end)
+	for x in [cat, c, end]:
+		S.dispatch(x)
+
+	inv = library.RInvocation(None, b'GET', b'/test', [])
+	c.m_request(add, inv, None)
+	c.f_transfer([(1, ((b'200', b'OK'), []), None)])
+	ctx()
+	test/l[0] == (c, inv)
+
+def test_Mitre_server_request(test):
+	"""
+	# - &library.Mitre
+	"""
+	l = []
+	add = (lambda x,y: l.append((x,y)))
+	ctx, S = testlib.sector()
+
+	end = flows.Collection.list()
+	cat = flows.Catenation()
+	c = library.Mitre.server(add)
+
+	c.f_connect(cat)
+	cat.f_connect(end)
+	for x in [cat, c, end]:
+		S.dispatch(x)
+
+	inv = library.Invocation(None, b'GET', b'/test', [])
+	c.f_transfer([(1, inv, None)])
+	ctx()
+	test/l[0] == (c, inv)
+
+def test_SProtocol_initiate_request(test):
+	"""
+	# - &library.SProtocol
+	# - &library.Mitre
+	"""
+	l = []
+	add = (lambda x,y: l.append((x,y)))
+	ctx, S = testlib.sector()
+
+	end = flows.Collection.list()
+	pf = library.SProtocol(b'HTTP/1.1', library.initiate_server_request)
+	cat = flows.Catenation()
+	c = library.Mitre.client()
+
+	c.f_connect(cat)
+	cat.f_connect(pf)
+	pf.f_connect(end)
+	for x in [cat, c, pf, end]:
+		S.dispatch(x)
+
+	inv = library.RInvocation(None, b'GET', b'/test', [])
+	c.m_request(add, inv, None)
+	ctx()
+	ctx()
+	test/end.c_storage[0][0] == b'GET /test HTTP/1.1'
+
+def test_RProtocol_allocate_request(test):
+	"""
+	# - &library.RProtocol
+	# - &library.Mitre
+	"""
+	l = []
+	add = (lambda x,y: l.append((x,y)))
+	ctx, S = testlib.sector()
+
+	end = flows.Collection.list()
+	pf = library.RProtocol(b'HTTP/1.1', library.allocate_client_request)
+	div = flows.Division()
+	cat = flows.Catenation()
+	s = library.Mitre.server(add)
+
+	pf.f_connect(div)
+	div.f_connect(s)
+	s.f_connect(cat)
+	cat.f_connect(end)
+	for x in [pf, div, s, cat, end]:
+		S.dispatch(x)
+
+	pf.f_transfer(req())
+	ctx()
+	ctx()
+	inv = l[0][1]
+	test/inv.method == 'GET'
+	test/inv.path == '/test/fault.io.http'
+	test/inv._connect_input is not None
+
+def test_client_transport(test):
+	"""
+	# - &library.RProtocol
+	# - &library.SProtocol
+	# - &library.Mitre
+	"""
+	l = []
+	add = (lambda x,y: l.append((x,y)))
+
+	ctx, S = testlib.sector()
+	end = flows.Collection.list()
+	start = flows.Channel()
+
+	t = kio.Transport.from_stack([
+		(('test', None), (start, end)),
+		library.allocate_client_protocol()
+	])
+	S.dispatch(kcore.Transaction.create(t))
+	ctx()
+
+	m = library.Mitre.client()
+	t.tp_connect(m)
+	ctx()
+	inv = library.RInvocation(None, b'GET', b'/test', [])
+	m.m_request(add, inv, None)
+	ctx()
+	test/end.c_storage[0][0] == b"GET /test HTTP/1.1"
+
+	start.f_transfer([b"HTTP/1.1 200 OK\r\n"])
+	start.f_transfer([b"Content-Length: 100\r\n\r\n"])
+	start.f_transfer([b"X"*100])
+	start.f_transfer([b"\r\n"])
+	ctx()
+
+	r = flows.Receiver(inv._connect_input)
+	S.dispatch(r)
+	received_content = flows.Collection.list()
+	r.f_connect(received_content)
+	S.dispatch(received_content)
+	r.f_transfer(None)
+	ctx()
+
+	xfer = b''.join(map(b''.join, received_content.c_storage))
+	test/xfer == b"X"*100
+	ctx()
+	test/r.terminated == True
+
+def test_server_transport(test):
+	"""
+	# - &library.RProtocol
+	# - &library.SProtocol
+	# - &library.Mitre
+	"""
+	l = []
+	add = (lambda x,y: l.append((x,y)))
+
+	ctx, S = testlib.sector()
+	end = flows.Collection.list()
+	start = flows.Channel()
+
+	t = kio.Transport.from_stack([
+		(('test', None), (start, end)),
+		library.allocate_server_protocol()
+	])
+	S.dispatch(kcore.Transaction.create(t))
+	ctx()
+
+	m = library.Mitre.server(add)
+	t.tp_connect(m)
+	ctx()
+
+	start.f_transfer([b"POST /test HTTP/1.1\r\n"])
+	start.f_transfer([b"Content-Length: 100\r\n\r\n"])
+	start.f_transfer([b"X"*100])
+	start.f_transfer([b"\r\n"])
+	ctx()
+
+	inv = l[0][1]
+	r = flows.Receiver(inv._connect_input)
+	S.dispatch(r)
+	received_content = flows.Collection.list()
+	r.f_connect(received_content)
+	S.dispatch(received_content)
+	r.f_transfer(None)
+	ctx()
+
+	# Received
+	xfer = b''.join(map(b''.join, received_content.c_storage))
+	test/xfer == b"X"*100
+	ctx()
+	test/r.terminated == True
+
+	inv.set_response_ok()
+	inv.set_response_headers([])
+	inv.declare_output_length(200)
+
+	relay = flows.Relay(*inv._output)
+	S.dispatch(relay)
+	inv._connect_output(inv, relay)
+	relay.f_transfer([b"Y"*200])
+	relay.f_terminate()
+	ctx()
+
+	xfer = b''.join(map(b''.join, end.c_storage))
+	expect = b"HTTP/1.1 200 OK\r\n"
+	expect += b"Content-Length: 200\r\n"
+	expect += b"\r\n"
+	expect += b"Y"*200
+
+	test/xfer == expect
+	ctx()
+	test/r.terminated == True
 
 if __name__ == '__main__':
 	import sys; from ...test import library as libtest
