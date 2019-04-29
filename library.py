@@ -16,7 +16,7 @@ from ..system import files
 
 from ..internet import media
 
-from ..kernel import library as libkernel
+from ..kernel import flows as kflows
 from . import http
 
 class Path(libroutes.Route):
@@ -275,7 +275,7 @@ class Resource(object):
 
 	def transformed(self, context, collection, path, query, px, flow, chain=itertools.chain):
 		"""
-		# Once the request entity has been buffered into the &libkernel.Collection,
+		# Once the request entity has been buffered into the &kflows.Collection,
 		# it can be parsed into parameters for the resource method.
 		"""
 
@@ -325,7 +325,7 @@ class Resource(object):
 				return
 
 			# Buffer and transform the input to the callable adherring to the limit.
-			cl = libkernel.Collection.list()
+			cl = kflows.Collection.list()
 			collection = cl.c_storage
 			px.xact_dispatch(cl)
 			cl.atexit(lambda xp: self.transformed(context, collection, path, query, px, xp))

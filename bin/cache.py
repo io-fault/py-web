@@ -35,7 +35,6 @@ from ...internet import ri
 from ...internet import host
 from ...computation import library as libc
 
-from ...kernel import library as libkernel
 from ...kernel import core as kcore
 from ...kernel import flows as kflows
 from ...kernel import io as kio
@@ -50,7 +49,7 @@ except:
 	security = None
 	securtiy_context = None
 
-class Download(libkernel.Executable):
+class Download(kcore.Executable):
 	dl_tls = None
 	dl_start_time = None
 	dl_transfer_counter = None
@@ -185,7 +184,7 @@ class Download(libkernel.Executable):
 		routput.f_transfer(None)
 
 	def dl_dispatch(self, url):
-		struct, endpoint = url # ri.parse(x), libkernel.Endpoint(y)
+		struct, endpoint = url # ri.parse(x), kio.Endpoint(y)
 		req = self.dl_request(struct)
 
 		from ...terminal.format.url import f_struct
@@ -233,7 +232,7 @@ class Download(libkernel.Executable):
 				a = socket.getaddrinfo(x.address, None, family=socket.AF_INET, type=socket.SOCK_STREAM)
 				for i in a:
 					ip = i[-1][0]
-					y = libkernel.endpoint('ip4', ip, x.port)
+					y = kio.endpoint('ip4', ip, x.port)
 					print('Possible host:', y)
 				lendpoints.append((struct, y))
 			else:
@@ -254,7 +253,8 @@ def main(inv:process.Invocation) -> process.Exit:
 	#Download.spawn('fetch', inv, endpoints)
 	exe = Download(inv, 'fetch')
 	start = functools.partial(exe.dl_initialize, endpoints)
-	libkernel.system.spawn('root', [exe]).boot(start)
+	from ...kernel import system
+	system.spawn('root', [exe]).boot(start)
 
 if __name__ == '__main__':
 	process.control(main, process.Invocation.system())

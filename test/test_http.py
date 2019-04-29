@@ -5,7 +5,6 @@ import itertools
 import json
 from .. import http as library
 
-from ...kernel import library as libkernel
 from ...kernel import flows
 from ...kernel import core as kcore
 from ...kernel import io as kio
