@@ -470,37 +470,12 @@ class RInvocation(Invocation):
 
 	projection = True
 
-class ProtocolTransaction(core.Executable):
+class ProtocolDispatch(core.Executable):
 	"""
 	# HTTP Transaction Context.
 
 	# Manages &io.Transfer transactions or &io.Transport transaction facilitating a client's request.
 	"""
-
-	def io_execute(self):
-		"""
-		# Entry point for fulfilling a protocol transaction.
-		"""
-
-	def io_reflect(self):
-		"""
-		# Send the input back to the output. Usually, after configuring the response layer.
-
-		# Primarily used for performance testing.
-		"""
-		pass
-
-	def io_write_null(self):
-		"""
-		# Used to send a request or a response without a body.
-		# Necessary to emit the headers of the transaction.
-		"""
-
-	def io_read_null(self):
-		"""
-		# Used to note that no read will occur.
-		# *Must* be used when no body is expected. Usually called by the &Client or &Server.
-		"""
 
 	@property
 	def http_terminal(self):
@@ -508,6 +483,15 @@ class ProtocolTransaction(core.Executable):
 		# Whether the Transaction is the last.
 		"""
 		return False
+
+	def http_transfer_output(self, channels):
+		"""
+		# Execute a transfer targeting the output of the &Invocation.
+		"""
+		xact = kcore.Transaction.create(kio.Transfer())
+		self.xact_dispatch(xact)
+		xact.xact_context.io_flow(channels + [self.exe_invocation._output])
+		xact.io_execute()
 
 	def http_continue(self, headers):
 		"""
@@ -520,7 +504,7 @@ class ProtocolTransaction(core.Executable):
 		# Currently, the HTTP implementation presumes one response
 		# per transaction which is in conflict with HTTP/1.1's CONTINUE.
 		"""
-		raise NotImplementedError()
+		raise NotImplementedError("not supported")
 
 	def http_redirect(self, location):
 		"""
@@ -539,12 +523,12 @@ class ProtocolTransaction(core.Executable):
 		"""
 		# Define the type and length of the entity body to be sent.
 		"""
-		self.response.add_headers([
+		self.exe_invocation.add_headers([
 			(b'Content-Type', cotype),
 			(b'Content-Length', colength),
 		])
 
-	def io_iterate_output(self, iterator:typing.Iterable):
+	def http_iterate_output(self, iterator:typing.Iterable):
 		"""
 		# Construct a Flow consisting of a single &flows.Iterate instance
 		# used to stream output to the connection protocol state.
@@ -554,13 +538,13 @@ class ProtocolTransaction(core.Executable):
 		"""
 
 		f = flows.Iteration(iterator)
-		self.xact_dispatch(f)
+		self.http_transfer(f)
 		self.response.initiate((self.request.version, b'200', b'OK'))
 		self.xact_ctx_connect_output(f)
 
 		return f
 
-	def io_write_output(self, mime:str, data:bytes):
+	def http_write_output(self, mime:str, data:bytes):
 		"""
 		# Send the given &data to the remote end with the given &mime type.
 		# If other headers are desired, they *must* be configured before running
@@ -574,7 +558,7 @@ class ProtocolTransaction(core.Executable):
 
 		return self.io_iterate_output([(data,)])
 
-	def io_read_file_into_output(self, path:str, str=str):
+	def http_read_file_into_output(self, path:str, str=str):
 		"""
 		# Send the file referenced by &path to the remote end as
 		# the (HTTP) entity body.
@@ -595,7 +579,7 @@ class ProtocolTransaction(core.Executable):
 
 		return f
 
-	def io_read_input_into_buffer(self, callback, limit=None):
+	def http_read_input_into_buffer(self, callback, limit=None):
 		"""
 		# Connect the input Flow to a buffer that executes
 		# the given callback when the entity body has been transferred.
@@ -613,7 +597,7 @@ class ProtocolTransaction(core.Executable):
 
 		return f
 
-	def io_read_input_into_file(self, route):
+	def http_read_input_into_file(self, route):
 		"""
 		# Connect the input Flow's entity body to the given file.
 
@@ -626,7 +610,7 @@ class ProtocolTransaction(core.Executable):
 
 		return f
 
-	def io_write_kport_to_output(self, fd, limit=None):
+	def http_write_kport_to_output(self, fd, limit=None):
 		"""
 		# Transfer data from the &kport, file descriptor, to the output
 		# constrained by the limit.
@@ -640,7 +624,7 @@ class ProtocolTransaction(core.Executable):
 
 		return f
 
-	def io_read_input_into_kport(self, fd, limit=None):
+	def http_read_input_into_kport(self, fd, limit=None):
 		"""
 		# Connect the input Flow's entity body to the given file descriptor.
 		# The state of the open file descriptor will be used to allow inputs
@@ -655,7 +639,7 @@ class ProtocolTransaction(core.Executable):
 
 		return f
 
-	def io_connect_pipeline(self, kpipeline):
+	def http_connect_pipeline(self, kpipeline):
 		"""
 		# Connect the input and output to a &..system.execution.PInvocation.
 		# Received data will be sent to the pipeline,
