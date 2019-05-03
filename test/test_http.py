@@ -210,64 +210,18 @@ def test_Structures_cookies(test):
 	"""
 	pass
 
-def test_Client_request(test):
-	"""
-	# - &library.Mitre
-	"""
-	l = []
-	add = (lambda x,y: l.append((x,y)))
-	ctx, S = testlib.sector()
-
-	end = flows.Collection.list()
-	cat = flows.Catenation()
-	c = library.Mitre.client()
-
-	c.f_connect(cat)
-	cat.f_connect(end)
-	for x in [cat, c, end]:
-		S.dispatch(x)
-
-	inv = library.RInvocation(None, b'GET', b'/test', [])
-	c.m_request(add, inv, None)
-	c.f_transfer([(1, ((b'200', b'OK'), []), None)])
-	ctx()
-	test/l[0] == (c, inv)
-
-def test_Mitre_server_request(test):
-	"""
-	# - &library.Mitre
-	"""
-	l = []
-	add = (lambda x,y: l.append((x,y)))
-	ctx, S = testlib.sector()
-
-	end = flows.Collection.list()
-	cat = flows.Catenation()
-	c = library.Mitre.server(add)
-
-	c.f_connect(cat)
-	cat.f_connect(end)
-	for x in [cat, c, end]:
-		S.dispatch(x)
-
-	inv = library.Invocation(None, b'GET', b'/test', [])
-	c.f_transfer([(1, inv, None)])
-	ctx()
-	test/l[0] == (c, inv)
-
 def test_SProtocol_initiate_request(test):
 	"""
 	# - &library.SProtocol
-	# - &library.Mitre
 	"""
 	l = []
-	add = (lambda x,y: l.append((x,y)))
+	add = (lambda x: l.extend(x.m_correlate()))
 	ctx, S = testlib.sector()
 
 	end = flows.Collection.list()
-	pf = library.SProtocol(b'HTTP/1.1', library.initiate_server_request)
+	pf = library.SProtocol(b'HTTP/1.1', library.SProtocol.initiate_server_request)
 	cat = flows.Catenation()
-	c = library.Mitre.client()
+	c = flows.Mitre(add)
 
 	c.f_connect(cat)
 	cat.f_connect(pf)
@@ -275,8 +229,9 @@ def test_SProtocol_initiate_request(test):
 	for x in [cat, c, pf, end]:
 		S.dispatch(x)
 
-	inv = library.RInvocation(None, b'GET', b'/test', [])
-	c.m_request(add, inv, None)
+	inv = (b'GET', b'/test', [], None)
+	(channel_id, connect), = c.m_allocate()
+	connect(inv, None)
 	ctx()
 	ctx()
 	test/end.c_storage[0][0] == b'GET /test HTTP/1.1'
@@ -284,17 +239,16 @@ def test_SProtocol_initiate_request(test):
 def test_RProtocol_allocate_request(test):
 	"""
 	# - &library.RProtocol
-	# - &library.Mitre
 	"""
 	l = []
-	add = (lambda x,y: l.append((x,y)))
+	add = (lambda x: l.extend(x.m_correlate()))
 	ctx, S = testlib.sector()
 
 	end = flows.Collection.list()
-	pf = library.RProtocol(b'HTTP/1.1', library.allocate_client_request)
+	pf = library.RProtocol(b'HTTP/1.1', library.RProtocol.allocate_client_request)
 	div = flows.Division()
 	cat = flows.Catenation()
-	s = library.Mitre.server(add)
+	s = flows.Mitre(add)
 
 	pf.f_connect(div)
 	div.f_connect(s)
@@ -307,18 +261,15 @@ def test_RProtocol_allocate_request(test):
 	ctx()
 	ctx()
 	inv = l[0][1]
-	test/inv.method == 'GET'
-	test/inv.path == '/test/fault.io.http'
-	test/inv._connect_input is not None
+	test/inv == (b'GET', b'/test/fault.io.http', [(b'Host', b'test.fault.io')])
 
 def test_client_transport(test):
 	"""
 	# - &library.RProtocol
 	# - &library.SProtocol
-	# - &library.Mitre
 	"""
 	l = []
-	add = (lambda x,y: l.append((x,y)))
+	add = (lambda x: l.extend(x.m_correlate()))
 
 	ctx, S = testlib.sector()
 	end = flows.Collection.list()
@@ -328,11 +279,12 @@ def test_client_transport(test):
 	S.dispatch(kcore.Transaction.create(t))
 	ctx()
 
-	m = library.Mitre.client()
+	m = flows.Mitre(add)
 	t.tp_connect(library.allocate_client_protocol(), m)
 	ctx()
-	inv = library.RInvocation(None, b'GET', b'/test', [])
-	m.m_request(add, inv, None)
+	inv = (b'GET', b'/test', [], None)
+	(channel_id, connect), = m.m_allocate()
+	connect(inv, None)
 	ctx()
 	test/end.c_storage[0][0] == b"GET /test HTTP/1.1"
 
@@ -342,7 +294,8 @@ def test_client_transport(test):
 	start.f_transfer([b"\r\n"])
 	ctx()
 
-	r = flows.Receiver(inv._connect_input)
+	connect_input = l[0][2]
+	r = flows.Receiver(connect_input)
 	S.dispatch(r)
 	received_content = flows.Collection.list()
 	r.f_connect(received_content)
@@ -359,10 +312,9 @@ def test_server_transport(test):
 	"""
 	# - &library.RProtocol
 	# - &library.SProtocol
-	# - &library.Mitre
 	"""
 	l = []
-	add = (lambda x,y: l.append((x,y)))
+	add = (lambda x: l.append(x.m_accept()))
 
 	ctx, S = testlib.sector()
 	end = flows.Collection.list()
@@ -372,7 +324,7 @@ def test_server_transport(test):
 	S.dispatch(kcore.Transaction.create(t))
 	ctx()
 
-	m = library.Mitre.server(add)
+	m = flows.Mitre(add)
 	t.tp_connect(library.allocate_server_protocol(), m)
 	ctx()
 
@@ -382,13 +334,15 @@ def test_server_transport(test):
 	start.f_transfer([b"\r\n"])
 	ctx()
 
-	inv = l[0][1]
-	r = flows.Receiver(inv._connect_input)
+	connect_output = l[0][0][0]
+	connect_input = l[0][1][0][2]
+
+	r = flows.Receiver(None)
 	S.dispatch(r)
 	received_content = flows.Collection.list()
 	r.f_connect(received_content)
 	S.dispatch(received_content)
-	r.f_transfer(None)
+	connect_input(r)
 	ctx()
 
 	# Received
@@ -397,13 +351,9 @@ def test_server_transport(test):
 	ctx()
 	test/r.terminated == True
 
-	inv.set_response_ok()
-	inv.set_response_headers([])
-	inv.declare_output_length(200)
-
-	relay = flows.Relay(*inv._output)
+	relay = flows.Relay(m.f_downstream, 1)
 	S.dispatch(relay)
-	inv._connect_output(inv, relay)
+	connect_output((b'200', b'OK', [(b'Content-Length', b'200')], 200), relay)
 	relay.f_transfer([b"Y"*200])
 	relay.f_terminate()
 	ctx()

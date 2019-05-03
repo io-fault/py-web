@@ -72,8 +72,8 @@ class Download(kcore.Executable):
 		)
 		file.buffer.write(b''.join(screen.render(phrase)) + screen.reset_text())
 
-	def dl_response_collected(self, invocation):
-		target_path = invocation._path
+	def dl_response_collected(self):
+		target_path = self.dl_target_path
 		self.dl_status()
 
 		from ...terminal.format import path
@@ -87,7 +87,7 @@ class Download(kcore.Executable):
 
 	def xact_exit(self, subxact):
 		if subxact == self._dl_xfer:
-			self.dl_response_collected(subxact.xact_context._invocation)
+			self.dl_response_collected()
 
 	def dl_request(self, struct):
 		path = ri.http(struct)
@@ -98,7 +98,7 @@ class Download(kcore.Executable):
 			(b'Connection', b'close'),
 		]
 
-		req = http.Invocation(None, b'GET', b'/'+path.encode('utf-8'), headers)
+		req = http.RInvocation(None, b'GET', b'/'+path.encode('utf-8'), headers)
 		req.parameters['ri'] = struct
 
 		if struct['path']:
@@ -106,7 +106,7 @@ class Download(kcore.Executable):
 		else:
 			path = files.Path.from_path('index')
 
-		req._path = path
+		self.dl_target_path = path
 
 		return req
 
@@ -140,10 +140,13 @@ class Download(kcore.Executable):
 
 		return next
 
-	def dl_response_endpoint(self, client, invocation):
-		rstruct = http.Structures(invocation.response_headers)
+	def dl_response_endpoint(self, mitre):
+		(channel_id, parameters, connect_input), = mitre.m_correlate() # One response.
+		(code, description, headers) = parameters
+
+		rstruct = http.Structures(headers)
 		self.dl_content_length = rstruct.length
-		path = invocation._path
+		path = self.dl_target_path
 
 		if self.dl_tls:
 			tls = self.dl_tls
@@ -167,7 +170,7 @@ class Download(kcore.Executable):
 		self.dl_identities.append(path)
 		self.dl_status()
 
-		target = client.system.append_file(str(path))
+		target = mitre.system.append_file(str(path))
 		trace = kflows.Traces()
 		track = libc.compose(functools.partial(self.dl_radar.track, path), libc.sum_lengths)
 		trace.monitor("rate", track)
@@ -177,11 +180,10 @@ class Download(kcore.Executable):
 
 		xact = kcore.Transaction.create(kio.Transfer())
 		self.xact_dispatch(xact)
-		routput = kflows.Receiver(invocation._connect_input)
+		routput = kflows.Receiver(connect_input)
 		xact.xact_context.io_flow([routput, trace, target])
-		xact.xact_context._invocation = invocation
 		self._dl_xfer = xact
-		routput.f_transfer(None)
+		xact.xact_context.io_execute()
 
 	def dl_dispatch(self, url):
 		struct, endpoint = url # ri.parse(x), kio.Endpoint(y)
@@ -195,7 +197,6 @@ class Download(kcore.Executable):
 		sys.stderr.write('\n')
 		sys.stderr.buffer.flush()
 
-		mitre = http.Mitre.client()
 		inv = self.dl_request(struct)
 		tp = kio.Transport.from_endpoint(self.system.connect(endpoint))
 
@@ -212,9 +213,14 @@ class Download(kcore.Executable):
 
 		xact = kcore.Transaction.create(tp)
 		self.xact_dispatch(xact)
+
+		mitre = kflows.Mitre(self.dl_response_endpoint)
 		tp.tp_connect(http.allocate_client_protocol(), mitre)
 
-		mitre.m_request(self.dl_response_endpoint, req, None)
+		(channel_id, aconnect), = mitre.m_allocate()
+		rp = req.parameters['request']
+		iparam = (rp['method'], rp['path'], rp['headers'], None)
+		aconnect(iparam, None)
 		tp.io_execute()
 
 	def dl_initialize(self, endpoints):

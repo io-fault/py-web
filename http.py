@@ -865,40 +865,26 @@ def fork(
 			if x[1]:
 				overflow(x[1])
 
-def initiate_server_request(protocol:bytes, invocation):
-	"""
-	# Used by clients with &SProtocol.
-	"""
-	p = invocation.parameters['request']
-	l = getattr(invocation, '_output_length', None)
-	return (p['method'], p['path'], protocol), p['headers'], l
-
-def initiate_client_response(protocol:bytes, invocation):
-	"""
-	# Used by servers with &SProtocol.
-	"""
-	code, description = (str(x).encode('ascii') for x in invocation.status)
-	l = getattr(invocation, '_output_length', None)
-	return (protocol, code, description), invocation.response_headers, l
-
-def allocate_client_request(pair):
-	"""
-	# Used by servers with &RProtocol.
-	"""
-	(method, path, version), headers = pair
-	return Invocation(None, method, path, headers), version
-
-def allocate_server_response(pair):
-	"""
-	# Used by clients with &RProtocol.
-	"""
-	(version, code, description), headers = pair
-	return ((code, description), headers), version
-
 class SProtocol(flows.Protocol):
 	"""
 	# Protocol class sending HTTP messages.
 	"""
+
+	@staticmethod
+	def initiate_server_request(protocol:bytes, parameter):
+		"""
+		# Used by clients to select the proper initiation to send.
+		"""
+		method, path, headers, length = parameter
+		return ((method, path, protocol), headers, length)
+
+	@staticmethod
+	def initiate_client_response(protocol:bytes, parameter):
+		"""
+		# Used by servers to select the proper initiation to send.
+		"""
+		code, description, headers, length = parameter
+		return ((protocol, code, description), headers, length)
 
 	def __init__(self, version:bytes, initiate):
 		self.version = version
@@ -914,6 +900,22 @@ class RProtocol(flows.Protocol):
 	"""
 	# Protocol class receiving HTTP messages.
 	"""
+
+	@staticmethod
+	def allocate_client_request(parameter):
+		"""
+		# For use by server receiving the client request.
+		"""
+		(method, path, version), headers = parameter
+		return (method, path, headers), version
+
+	@staticmethod
+	def allocate_server_response(parameter):
+		"""
+		# For use by clients receiving the server response.
+		"""
+		(version, code, description), headers = parameter
+		return (code, description, headers), version
 
 	def p_close(self):
 		pass
@@ -937,130 +939,14 @@ class RProtocol(flows.Protocol):
 	def f_transfer(self, event):
 		self.f_emit(self._fork(event))
 
-class Mitre(flows.Mitre):
-	"""
-	# Mitre managing HTTP protocol transactions.
-	"""
-
-	def __init__(self, router):
-		self.m_router = router
-		self.m_schannels = {}
-		self._protocol_xact_queue = []
-		self._protocol_xact_id = 0
-
-	@classmethod
-	def client(Class):
-		c = Class(None)
-		c._m_process = c.m_correlate
-		return c
-
-	@classmethod
-	def server(Class, router):
-		assert router is not None
-		s = Class(router)
-		s._m_process = s.m_accept
-		return s
-
-	def f_transfer(self, events):
-		# Synchronized on Logical Process Task Queue
-		xq = self._protocol_xact_queue
-		already_queued = bool(xq)
-		xq.extend(events)
-		if not already_queued:
-			self.critical(self.m_execute)
-
-	def m_execute(self):
-		"""
-		# Method enqueued by &f_transfer to flush the protocol transaction queue.
-		# Essentially, an internal method.
-		"""
-		xq = self._protocol_xact_queue
-		self._protocol_xact_queue = []
-		return self._m_process(xq)
-
-	def m_correlate(self, events):
-		"""
-		# Received a set of responses. Join with requests, and
-		# execute the receiver provided by the enqueueing operation.
-		"""
-
-		for channel_id, response, connect in events:
-			recv, inv = self.m_schannels.pop(channel_id)
-			inv.set_response_status(*response[0]).set_response_headers(response[1])
-			inv._connect_input = connect
-			inv._channels = (channel_id, channel_id)
-			recv(self, inv)
-
-	def m_accept(self, events, partial=functools.partial):
-		"""
-		# Accept a sequence of requests from a client configured remote endpoint.
-		"""
-
-		self._protocol_xact_id += len(events)
-
-		cat = self.f_downstream
-		for channel_id, inv, connect in events:
-			cat.int_reserve(channel_id)
-			inv._connect_input = connect
-			inv._output = (cat, channel_id)
-			inv._connect_output = partial(cat.int_connect, channel_id)
-			self.m_router(self, inv)
-
-	def m_request(self, receiver, invocation:RInvocation, flow:typing.Optional[flows.Relay]):
-		"""
-		# [ Parameters ]
-
-		# /receiver/
-			# Callback performed when a response has been received and is ready to be processed.
-		# /invocation/
-			# The request line and headers.
-		# /flow/
-			# The &flows.Relay to connect to input. &None, if there is no entity body.
-			# There is no expectation of actuation.
-		"""
-
-		self._protocol_xact_id += 1
-		channel_id = self._protocol_xact_id
-		cat = self.f_downstream
-
-		cat.int_reserve(channel_id)
-		self.m_schannels[channel_id] = (receiver, invocation)
-		cat.int_connect(channel_id, invocation, flow)
-
-	def m_connect(self, receiver, invocation:RInvocation):
-		"""
-		# Prepare a transport layer using a request.
-
-		# [ Parameters ]
-
-		# /receiver/
-			# Callback performed when a response has been received and is ready to be processed.
-		# /invocation/
-			# The request line and headers.
-		"""
-
-		self._protocol_xact_id += 1
-		channel_id = self._protocol_xact_id
-		cat = self.f_downstream
-
-		cat.int_reserve(channel_id)
-		self.m_schannels[channel_id] = (receiver, invocation)
-		p_input = flows.Receiver(None)
-		p_output = flows.Relay(cat, channel_id)
-		invocation._input = p_input
-		invocation._output = p_output
-		cat.int_connect(channel_id, invocation, p_output)
-
-		return invocation, (p_input, p_output)
-
 def allocate_client_protocol(version:bytes=b'HTTP/1.1'):
-	pi = RProtocol(version, allocate_server_response)
-	po = SProtocol(version, initiate_server_request)
+	pi = RProtocol(version, RProtocol.allocate_server_response)
+	po = SProtocol(version, SProtocol.initiate_server_request)
 	index = ('http', None)
 	return (index, (pi, po))
 
 def allocate_server_protocol(version:bytes=b'HTTP/1.1'):
-	pi = RProtocol(version, allocate_client_request)
-	po = SProtocol(version, initiate_client_response)
+	pi = RProtocol(version, RProtocol.allocate_client_request)
+	po = SProtocol(version, SProtocol.initiate_client_response)
 	index = ('http', None)
 	return (index, (pi, po))
