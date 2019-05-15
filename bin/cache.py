@@ -38,7 +38,9 @@ from ...computation import library as libc
 from ...kernel import core as kcore
 from ...kernel import flows as kflows
 from ...kernel import io as kio
+
 from .. import http
+from .. import agent
 
 from ...security.library import pki
 certificates = os.environ.get('SSL_CERT_FILE', '/etc/ssl/cert.pem')
@@ -49,13 +51,17 @@ except:
 	security = None
 	securtiy_context = None
 
-class Download(kcore.Executable):
+class Download(kcore.Context):
 	dl_tls = None
 	dl_start_time = None
 	dl_transfer_counter = None
 	dl_content_length = None
 	dl_identities = None
 	dl_radar = None
+	_dl_xfer = None
+
+	def __init__(self, endpoints):
+		self.dl_endpoints = endpoints
 
 	def dl_count(self, name, event):
 		xfer = libc.sum_lengths(event)
@@ -83,7 +89,7 @@ class Download(kcore.Executable):
 		self.dl_pprint(sys.stdout, screen, path.f_route_absolute(target_path))
 		sys.stdout.write('\n')
 
-		self.exe_invocation.exit(0)
+		self.executable.exe_invocation.exit(0)
 
 	def xact_exit(self, subxact):
 		if subxact == self._dl_xfer:
@@ -98,7 +104,7 @@ class Download(kcore.Executable):
 			(b'Connection', b'close'),
 		]
 
-		req = http.RInvocation(None, b'GET', b'/'+path.encode('utf-8'), headers)
+		req = agent.RInvocation(None, b'GET', b'/'+path.encode('utf-8'), headers)
 		req.parameters['ri'] = struct
 
 		if struct['path']:
@@ -223,13 +229,13 @@ class Download(kcore.Executable):
 		aconnect(iparam, None)
 		tp.io_execute()
 
-	def dl_initialize(self, endpoints):
+	def actuate(self):
+		endpoints = self.dl_endpoints
+
 		self.dl_identities = []
 		self.dl_radar = rate.Radar()
 		self.dl_transfer_counter = collections.Counter()
 		self.dl_start_time = libtime.now()
-
-		urls = self.exe_invocation.args
 
 		# Only load DNS if its needed.
 		lendpoints = []
@@ -249,18 +255,18 @@ class Download(kcore.Executable):
 			return
 
 		hc = self.dl_dispatch(lendpoints[0])
-		r = self.controller.scheduler.recurrence(self.dl_status)
+		r = self.executable.controller.scheduler.recurrence(self.dl_status)
 
 def main(inv:process.Invocation) -> process.Exit:
 	os.umask(0o137)
 	# URL target; endpoint exists on a remote system.
 	endpoints = [(struct, host.realize(struct)) for struct in map(ri.parse, inv.args)]
 
-	#Download.spawn('fetch', inv, endpoints)
-	exe = Download(inv, 'fetch')
-	start = functools.partial(exe.dl_initialize, endpoints)
+	dl = Download(endpoints)
+
 	from ...kernel import system
-	system.spawn('root', [exe]).boot(start)
+	system.dispatch(inv, dl)
+	system.control()
 
 if __name__ == '__main__':
 	process.control(main, process.Invocation.system())
