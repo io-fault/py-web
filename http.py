@@ -15,7 +15,6 @@ import collections
 import itertools
 
 from ..time import library as libtime
-from ..routes import library as libroutes
 from ..system import memory
 
 from ..internet.data import http as protocoldata # On disk (shared) hash for this is preferred.

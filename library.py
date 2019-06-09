@@ -8,7 +8,7 @@ import json
 import hashlib
 import collections
 
-from ..routes import library as libroutes
+from ..routes import types as routes
 from ..hkp import library as libhkp
 
 from ..system import memory
@@ -19,7 +19,7 @@ from ..internet import media
 from ..kernel import flows as kflows
 from . import http
 
-class Path(libroutes.Route):
+class Path(routes.Selector):
 	"""
 	# A Path sequence used to aid in request routing and request path construction.
 	"""
@@ -52,7 +52,7 @@ def route_headers(route, mtype):
 def fs_resolve(cache, root, mime_types, accept):
 	"""
 	# Given a root &libhkp.Dictionary whose keys are mime-types and whose
-	# values are &libhkp.Dictionary instances, return the &libroutes.Route
+	# values are &libhkp.Dictionary instances, return the &routes.Selector
 	# that best matches the acceptable types and the path.
 
 	# This function should be bound to an LRU cache in order to optimize
