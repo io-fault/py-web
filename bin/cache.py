@@ -28,10 +28,9 @@ import collections
 from ...system import files
 from ...system import process
 
-from ...time import library as libtime
+from ...time import types as timetypes
 from ...internet import ri
 from ...internet import host
-from ...computation import library as libc
 
 from ...kernel import core as kcore
 from ...kernel import flows as kflows
@@ -54,7 +53,6 @@ except:
 class Download(kcore.Context):
 	dl_monitor = None
 	dl_tls = None
-	dl_start_time = None
 	dl_transfer_counter = None
 	dl_content_length = None
 	dl_identities = None
@@ -112,8 +110,8 @@ class Download(kcore.Context):
 
 		return req
 
-	def dl_status(self, time=None, next=libtime.Measure.of(millisecond=500)):
-		window = libtime.Measure.of(second=8)
+	def dl_status(self, time=None, next=timetypes.Measure.of(millisecond=500)):
+		window = timetypes.Measure.of(second=8)
 		counter = self.dl_transfer_counter
 
 		if not self.dl_identities:
@@ -136,11 +134,11 @@ class Download(kcore.Context):
 					eta = ((self.dl_content_length-counter[x]) / rate)
 				else:
 					eta = counter[x] / rate
-				m = libtime.Measure.of(second=int(eta), subsecond=eta-int(eta))
+				m = timetypes.Measure.of(second=int(eta), subsecond=eta-int(eta))
 				m = m.truncate('millisecond')
 				xfer_rate = rate / 1000
 			except ZeroDivisionError:
-				m = libtime.never
+				m = 'never'
 				xfer_rate = 0.0
 
 			print("\r%s %d bytes @ %f KB/sec [%r]%s" %(x, counter[x], xfer_rate, m, ' '*40), end='')
@@ -232,7 +230,6 @@ class Download(kcore.Context):
 
 		self.dl_identities = []
 		self.dl_transfer_counter = collections.Counter()
-		self.dl_start_time = libtime.now()
 
 		# Only load DNS if its needed.
 		lendpoints = []
