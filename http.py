@@ -14,7 +14,7 @@ import functools
 import collections
 import itertools
 
-from ..time import library as libtime
+from ..time import types as timetypes
 from ..system import memory
 
 from ..internet.data import http as protocoldata # On disk (shared) hash for this is preferred.
@@ -310,7 +310,7 @@ class Structures(object):
 		return media.type_from_bytes(self.headers[b'content-type'])
 
 	@property
-	def date(self, parse=libtime.parse_rfc1123) -> libtime.Timestamp:
+	def date(self, parse=(lambda x: timetypes.Timestamp.of(rfc=x))) -> timetypes.Timestamp:
 		"""
 		# Date header timestamp.
 		"""
