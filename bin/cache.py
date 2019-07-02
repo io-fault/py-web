@@ -23,7 +23,6 @@ import sys
 import os
 import functools
 import itertools
-import socket
 import collections
 
 from ...system import files
@@ -38,6 +37,8 @@ from ...computation import library as libc
 from ...kernel import core as kcore
 from ...kernel import flows as kflows
 from ...kernel import io as kio
+
+from ...system import network
 
 from .. import http
 from .. import agent
@@ -198,7 +199,8 @@ class Download(kcore.Context):
 		from ...terminal.format.url import f_struct
 		from ...terminal import matrix
 		screen = matrix.Screen()
-		struct['fragment'] = '[%s]' %(str(endpoint),)
+		struct['fragment'] = '[%s]' %(str(endpoint.address),)
+		struct['port'] = str(int(endpoint.port))
 		self.dl_pprint(sys.stderr, screen, f_struct(struct))
 		sys.stderr.write('\n')
 		sys.stderr.buffer.flush()
@@ -241,12 +243,11 @@ class Download(kcore.Context):
 		lendpoints = []
 		for struct, x in endpoints:
 			if x.protocol == 'internet-names':
-				a = socket.getaddrinfo(x.address, None, family=socket.AF_INET, type=socket.SOCK_STREAM)
-				for i in a:
-					ip = i[-1][0]
-					y = kio.endpoint('ip4', ip, x.port)
+				cname, a = network.select_transports(x.address, 'https')
+				for tptype, af, addr, port in a:
+					y = kio.endpoint(af, addr, int(port))
 					print('Possible host:', y)
-				lendpoints.append((struct, y))
+					lendpoints.append((struct, y))
 			else:
 				lendpoints.append((struct, x))
 
