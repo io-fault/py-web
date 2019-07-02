@@ -29,7 +29,6 @@ from ...system import files
 from ...system import process
 
 from ...time import library as libtime
-from ...time import rate
 from ...internet import ri
 from ...internet import host
 from ...computation import library as libc
@@ -53,20 +52,16 @@ except:
 	securtiy_context = None
 
 class Download(kcore.Context):
+	dl_monitor = None
 	dl_tls = None
 	dl_start_time = None
 	dl_transfer_counter = None
 	dl_content_length = None
 	dl_identities = None
-	dl_radar = None
 	_dl_xfer = None
 
 	def __init__(self, endpoints):
 		self.dl_endpoints = endpoints
-
-	def dl_count(self, name, event):
-		xfer = libc.sum_lengths(event)
-		self.dl_transfer_counter[name] += xfer
 
 	def dl_pprint(self, file, screen, source):
 		rp = screen.terminal_type.normal_render_parameters
@@ -117,33 +112,40 @@ class Download(kcore.Context):
 
 		return req
 
-	def dl_status(self, time=None, next=libtime.Measure.of(second=1)):
-		radar = self.dl_radar
+	def dl_status(self, time=None, next=libtime.Measure.of(millisecond=500)):
+		window = libtime.Measure.of(second=8)
 		counter = self.dl_transfer_counter
 
-		for x in self.dl_identities:
-			radar.track(x, 0)
-			units, time = (radar.rate(x, libtime.Measure.of(second=8)))
-			seconds = time.select('second')
+		if not self.dl_identities:
+			return next
+		x = self.dl_identities[-1]
 
-			if seconds:
-				rate = (units / time.select('second'))
+		if self.dl_monitor is not None:
+			monitor = self.dl_monitor
+			units, time = monitor.tm_rate(window)
+		else:
+			units, time = (0, window.__class__(1))
 
-				try:
-					if self.dl_content_length is not None:
-						eta = ((self.dl_content_length-counter[x]) / rate)
-					else:
-						eta = counter[x] / rate
-					m = libtime.Measure.of(second=int(eta), subsecond=eta-int(eta))
-					m = m.truncate('millisecond')
-					xfer_rate = rate / 1000
-				except ZeroDivisionError:
-					m = libtime.never
-					xfer_rate = 0.0
+		seconds = time.select('second')
 
-				print("\r%s %d bytes @ %f KB/sec [%r]%s" %(x, counter[x], xfer_rate, m, ' '*40), end='')
-			else:
-				print("\r%s %d bytes%s" %(x, counter[x], ' '*40), end='')
+		if seconds:
+			rate = (units / time.select('second'))
+
+			try:
+				if self.dl_content_length is not None:
+					eta = ((self.dl_content_length-counter[x]) / rate)
+				else:
+					eta = counter[x] / rate
+				m = libtime.Measure.of(second=int(eta), subsecond=eta-int(eta))
+				m = m.truncate('millisecond')
+				xfer_rate = rate / 1000
+			except ZeroDivisionError:
+				m = libtime.never
+				xfer_rate = 0.0
+
+			print("\r%s %d bytes @ %f KB/sec [%r]%s" %(x, counter[x], xfer_rate, m, ' '*40), end='')
+		else:
+			print("\r%s %d bytes%s" %(x, counter[x], ' '*40), end='')
 
 		return next
 
@@ -178,17 +180,11 @@ class Download(kcore.Context):
 		self.dl_status()
 
 		target = mitre.system.append_file(str(path))
-		trace = kflows.Traces()
-		track = libc.compose(functools.partial(self.dl_radar.track, path), libc.sum_lengths)
-		trace.monitor("rate", track)
-
-		track = libc.partial(self.dl_count, path)
-		trace.monitor("total", track)
 
 		xact = kcore.Transaction.create(kio.Transfer())
 		self.xact_dispatch(xact)
 		routput = kflows.Receiver(connect_input)
-		xact.xact_context.io_flow([routput, trace, target])
+		self.dl_monitor = xact.xact_context.io_flow([routput, target], Terminal=kio.flows.Monitor)
 		self._dl_xfer = xact
 		xact.xact_context.io_execute()
 
@@ -235,7 +231,6 @@ class Download(kcore.Context):
 		endpoints = self.dl_endpoints
 
 		self.dl_identities = []
-		self.dl_radar = rate.Radar()
 		self.dl_transfer_counter = collections.Counter()
 		self.dl_start_time = libtime.now()
 
