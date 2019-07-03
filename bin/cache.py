@@ -41,7 +41,7 @@ from ...system import network
 from .. import http
 from .. import agent
 
-from ...security.library import pki
+from ...security import openssl as pki
 certificates = os.environ.get('SSL_CERT_FILE', '/etc/ssl/cert.pem')
 try:
 	with open(certificates, 'rb') as f:
