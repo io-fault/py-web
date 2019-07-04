@@ -4,7 +4,7 @@
 import functools
 import typing
 
-from ..computation import match
+from ..context import match
 
 from ..kernel import core
 from ..kernel import flows

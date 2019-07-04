@@ -10,10 +10,10 @@
 	# &Layer.header_sequence.
 """
 import typing
-import functools
 import collections
 import itertools
 
+from ..context import tools
 from ..time import types as timetypes
 from ..system import memory
 
@@ -26,10 +26,9 @@ from ..kernel import core
 from ..kernel import flows
 
 import operator
-from ..computation import library as libc
-length_string = libc.compose(operator.methodcaller('encode', 'utf-8'), str, len)
-length_strings = libc.compose(operator.methodcaller('encode', 'utf-8'), str, sum, functools.partial(map,len))
-del libc, operator
+length_string = tools.compose(operator.methodcaller('encode', 'utf-8'), str, len)
+length_strings = tools.compose(operator.methodcaller('encode', 'utf-8'), str, sum, tools.partial(map,len))
+del operator
 
 HeaderSequence = typing.Sequence[typing.Tuple[bytes, bytes]]
 
@@ -279,7 +278,7 @@ class Structures(object):
 		return self.cache.get(b'connection', b'').strip().lower()
 
 	@staticmethod
-	@functools.lru_cache(32)
+	@tools.cachedcalls(32)
 	def media_range_cache(range_data, parse_range=media.Range.from_bytes):
 		"""
 		# Cached access to a media range header.
