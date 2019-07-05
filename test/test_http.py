@@ -186,14 +186,17 @@ def test_SProtocol_initiate_request(test):
 
 	end = flows.Collection.list()
 	pf = library.SProtocol(b'HTTP/1.1', library.SProtocol.initiate_server_request)
-	cat = flows.Catenation()
-	c = flows.Mitre(add)
 
-	c.f_connect(cat)
-	cat.f_connect(pf)
-	pf.f_connect(end)
-	for x in [cat, c, pf, end]:
-		S.dispatch(x)
+	io = ('test', None), (flows.Channel(), end)
+	T = kio.Transport.from_endpoint(io)
+	rxtx = kcore.Transaction.create(T)
+	S.dispatch(rxtx)
+
+	c = T.tp_connect(add,
+		(('http', None), (flows.Channel(), pf)),
+	)
+
+	ctx()
 
 	inv = (b'GET', b'/test', [], None)
 	(channel_id, connect), = c.m_allocate()
@@ -212,16 +215,15 @@ def test_RProtocol_allocate_request(test):
 
 	end = flows.Collection.list()
 	pf = library.RProtocol(b'HTTP/1.1', library.RProtocol.allocate_client_request)
-	div = flows.Division()
-	cat = flows.Catenation()
-	s = flows.Mitre(add)
 
-	pf.f_connect(div)
-	div.f_connect(s)
-	s.f_connect(cat)
-	cat.f_connect(end)
-	for x in [pf, div, s, cat, end]:
-		S.dispatch(x)
+	io = ('test', None), (flows.Channel(), end)
+	T = kio.Transport.from_endpoint(io)
+	rxtx = kcore.Transaction.create(T)
+	S.dispatch(rxtx)
+
+	c = T.tp_connect(add,
+		(('http', None), (pf, flows.Channel())),
+	)
 
 	pf.f_transfer(req())
 	ctx()
@@ -242,11 +244,11 @@ def test_client_transport(test):
 	start = flows.Channel()
 
 	t = kio.Transport.from_endpoint((('test', None), (start, end)))
-	S.dispatch(kcore.Transaction.create(t))
+	rxtx = kcore.Transaction.create(t)
+	S.dispatch(rxtx)
 	ctx()
 
-	m = flows.Mitre(add)
-	t.tp_connect(library.allocate_client_protocol(), m)
+	m = t.tp_connect(add, library.allocate_client_protocol())
 	ctx()
 	inv = (b'GET', b'/test', [], None)
 	(channel_id, connect), = m.m_allocate()
@@ -290,8 +292,7 @@ def test_server_transport(test):
 	S.dispatch(kcore.Transaction.create(t))
 	ctx()
 
-	m = flows.Mitre(add)
-	t.tp_connect(library.allocate_server_protocol(), m)
+	m = t.tp_connect(add, library.allocate_server_protocol())
 	ctx()
 
 	start.f_transfer([b"POST /test HTTP/1.1\r\n"])
@@ -317,7 +318,7 @@ def test_server_transport(test):
 	ctx()
 	test/r.terminated == True
 
-	relay = flows.Relay(m.f_downstream, 1)
+	relay = flows.Relay(m.i_catenate, 1)
 	S.dispatch(relay)
 	connect_output((b'200', b'OK', [(b'Content-Length', b'200')], 200), relay)
 	relay.f_transfer([b"Y"*200])

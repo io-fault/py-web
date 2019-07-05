@@ -216,10 +216,9 @@ class Download(kcore.Context):
 		xact = kcore.Transaction.create(tp)
 		self.xact_dispatch(xact)
 
-		mitre = kflows.Mitre(self.dl_response_endpoint)
-		tp.tp_connect(http.allocate_client_protocol(), mitre)
+		inv = tp.tp_connect(self.dl_response_endpoint, http.allocate_client_protocol())
 
-		(channel_id, aconnect), = mitre.m_allocate()
+		(channel_id, aconnect), = inv.m_allocate()
 		rp = req.parameters['request']
 		iparam = (rp['method'], rp['path'], rp['headers'], None)
 		aconnect(iparam, None)

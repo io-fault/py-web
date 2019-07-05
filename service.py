@@ -189,7 +189,7 @@ class Host(core.Context):
 		# inherited from requests.
 
 	# /h_root/
-		# The root of the host's path as a &..computation.match.SubsequenceScan.
+		# The root of the host's path as a &..context.match.SubsequenceScan.
 		# This is the initial path of the router in order to allow "mounts"
 		# at arbitrary positions. Built from &requisite prefixes.
 
