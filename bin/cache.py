@@ -83,11 +83,12 @@ class Download(kcore.Context):
 		self.dl_pprint(sys.stdout, screen, path.f_route_absolute(target_path))
 		sys.stdout.write('\n')
 
-		self.executable.exe_invocation.exit(0)
+		self.executable.exe_status = 0
+		self._r.terminate()
+		self.controller.terminate()
 
-	def xact_exit(self, subxact):
-		if subxact == self._dl_xfer:
-			self.dl_response_collected()
+	def xact_void(self, final):
+		self.dl_response_collected()
 
 	def dl_request(self, struct):
 		path = ri.http(struct)
@@ -147,8 +148,8 @@ class Download(kcore.Context):
 
 		return next
 
-	def dl_response_endpoint(self, mitre):
-		(channel_id, parameters, connect_input), = mitre.m_correlate() # One response.
+	def dl_response_endpoint(self, invp):
+		(channel_id, parameters, connect_input), = invp.m_correlate() # One response.
 		(code, description, headers) = parameters
 
 		rstruct = http.Structures(headers)
@@ -177,7 +178,7 @@ class Download(kcore.Context):
 		self.dl_identities.append(path)
 		self.dl_status()
 
-		target = mitre.system.append_file(str(path))
+		target = invp.system.append_file(str(path))
 
 		xact = kcore.Transaction.create(kio.Transfer())
 		self.xact_dispatch(xact)
@@ -223,6 +224,7 @@ class Download(kcore.Context):
 		iparam = (rp['method'], rp['path'], rp['headers'], None)
 		aconnect(iparam, None)
 		tp.io_execute()
+		self.critical(tp.tp_output.xact_context._io_start.f_terminate)
 
 	def actuate(self):
 		endpoints = self.dl_endpoints
@@ -247,7 +249,8 @@ class Download(kcore.Context):
 			return
 
 		hc = self.dl_dispatch(lendpoints[0])
-		r = self.executable.controller.scheduler.recurrence(self.dl_status)
+		self.controller.scheduling()
+		self._r = self.controller.scheduler.recurrence(self.dl_status)
 
 def main(inv:process.Invocation) -> process.Exit:
 	os.umask(0o137)
