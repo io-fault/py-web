@@ -224,7 +224,7 @@ class Download(kcore.Context):
 		iparam = (rp['method'], rp['path'], rp['headers'], None)
 		aconnect(iparam, None)
 		tp.io_execute()
-		self.critical(tp.tp_output.xact_context._io_start.f_terminate)
+		self.critical(tp.io_transmit_close)
 
 	def actuate(self):
 		endpoints = self.dl_endpoints
