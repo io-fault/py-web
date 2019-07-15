@@ -196,13 +196,12 @@ def test_SProtocol_initiate_request(test):
 		(('http', None), (flows.Channel(), pf)),
 	)
 
-	ctx()
+	ctx(1)
 
 	inv = (b'GET', b'/test', [], None)
 	(channel_id, connect), = c.m_allocate()
 	connect(inv, None)
-	ctx()
-	ctx()
+	ctx(2)
 	test/end.c_storage[0][0] == b'GET /test HTTP/1.1'
 
 def test_RProtocol_allocate_request(test):
@@ -226,8 +225,7 @@ def test_RProtocol_allocate_request(test):
 	)
 
 	pf.f_transfer(req())
-	ctx()
-	ctx()
+	ctx(2)
 	inv = l[0][1]
 	test/inv == (b'GET', b'/test/fault.io.http', [(b'Host', b'test.fault.io')])
 
@@ -246,21 +244,21 @@ def test_client_transport(test):
 	t = kio.Transport.from_endpoint((('test', None), (start, end)))
 	rxtx = kcore.Transaction.create(t)
 	S.dispatch(rxtx)
-	ctx()
+	ctx(1)
 
 	m = t.tp_connect(add, library.allocate_client_protocol())
-	ctx()
+	ctx(1)
 	inv = (b'GET', b'/test', [], None)
 	(channel_id, connect), = m.m_allocate()
 	connect(inv, None)
-	ctx()
+	ctx(1)
 	test/end.c_storage[0][0] == b"GET /test HTTP/1.1"
 
 	start.f_transfer([b"HTTP/1.1 200 OK\r\n"])
 	start.f_transfer([b"Content-Length: 100\r\n\r\n"])
 	start.f_transfer([b"X"*100])
 	start.f_transfer([b"\r\n"])
-	ctx()
+	ctx(1)
 
 	connect_input = l[0][2]
 	r = flows.Receiver(connect_input)
@@ -269,11 +267,11 @@ def test_client_transport(test):
 	r.f_connect(received_content)
 	S.dispatch(received_content)
 	r.f_transfer(None)
-	ctx()
+	ctx(1)
 
 	xfer = b''.join(map(b''.join, received_content.c_storage))
 	test/xfer == b"X"*100
-	ctx()
+	ctx(1)
 	test/r.terminated == True
 
 def test_server_transport(test):
@@ -290,16 +288,16 @@ def test_server_transport(test):
 
 	t = kio.Transport.from_endpoint((('test', None), (start, end)))
 	S.dispatch(kcore.Transaction.create(t))
-	ctx()
+	ctx(1)
 
 	m = t.tp_connect(add, library.allocate_server_protocol())
-	ctx()
+	ctx(1)
 
 	start.f_transfer([b"POST /test HTTP/1.1\r\n"])
 	start.f_transfer([b"Content-Length: 100\r\n\r\n"])
 	start.f_transfer([b"X"*100])
 	start.f_transfer([b"\r\n"])
-	ctx()
+	ctx(1)
 
 	connect_output = l[0][0][0]
 	connect_input = l[0][1][0][2]
@@ -310,12 +308,12 @@ def test_server_transport(test):
 	r.f_connect(received_content)
 	S.dispatch(received_content)
 	connect_input(r)
-	ctx()
+	ctx(1)
 
 	# Received
 	xfer = b''.join(map(b''.join, received_content.c_storage))
 	test/xfer == b"X"*100
-	ctx()
+	ctx(1)
 	test/r.terminated == True
 
 	relay = flows.Relay(m.i_catenate, 1)
@@ -323,7 +321,7 @@ def test_server_transport(test):
 	connect_output((b'200', b'OK', [(b'Content-Length', b'200')], 200), relay)
 	relay.f_transfer([b"Y"*200])
 	relay.f_terminate()
-	ctx()
+	ctx(1)
 
 	xfer = b''.join(map(b''.join, end.c_storage))
 	expect = b"HTTP/1.1 200 OK\r\n"
@@ -332,7 +330,7 @@ def test_server_transport(test):
 	expect += b"Y"*200
 
 	test/xfer == expect
-	ctx()
+	ctx(1)
 	test/r.terminated == True
 
 if __name__ == '__main__':
