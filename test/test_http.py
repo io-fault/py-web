@@ -176,16 +176,16 @@ def test_Structures_cookies(test):
 	"""
 	pass
 
-def test_SProtocol_initiate_request(test):
+def test_TXProtocol_initiate_request(test):
 	"""
-	# - &library.SProtocol
+	# - &library.TXProtocol
 	"""
 	l = []
 	add = (lambda x: l.extend(x.m_correlate()))
 	ctx, S = testlib.sector()
 
 	end = flows.Collection.list()
-	pf = library.SProtocol(b'HTTP/1.1', library.SProtocol.initiate_server_request)
+	pf = library.TXProtocol(b'HTTP/1.1', library.TXProtocol.initiate_server_request)
 
 	io = ('test', None), (flows.Channel(), end)
 	T = kio.Transport.from_endpoint(io)
@@ -204,16 +204,16 @@ def test_SProtocol_initiate_request(test):
 	ctx(2)
 	test/end.c_storage[0][0] == b'GET /test HTTP/1.1'
 
-def test_RProtocol_allocate_request(test):
+def test_RXProtocol_allocate_request(test):
 	"""
-	# - &library.RProtocol
+	# - &library.RXProtocol
 	"""
 	l = []
 	add = (lambda x: l.extend(x.m_correlate()))
 	ctx, S = testlib.sector()
 
 	end = flows.Collection.list()
-	pf = library.RProtocol(b'HTTP/1.1', library.RProtocol.allocate_client_request)
+	pf = library.RXProtocol(b'HTTP/1.1', library.RXProtocol.allocate_client_request)
 
 	io = ('test', None), (flows.Channel(), end)
 	T = kio.Transport.from_endpoint(io)
@@ -231,8 +231,8 @@ def test_RProtocol_allocate_request(test):
 
 def test_client_transport(test):
 	"""
-	# - &library.RProtocol
-	# - &library.SProtocol
+	# - &library.RXProtocol
+	# - &library.TXProtocol
 	"""
 	l = []
 	add = (lambda x: l.extend(x.m_correlate()))
@@ -276,8 +276,8 @@ def test_client_transport(test):
 
 def test_server_transport(test):
 	"""
-	# - &library.RProtocol
-	# - &library.SProtocol
+	# - &library.RXProtocol
+	# - &library.TXProtocol
 	"""
 	l = []
 	add = (lambda x: l.append(x.m_accept()))

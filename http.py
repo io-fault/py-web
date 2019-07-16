@@ -556,7 +556,7 @@ def fork(
 			if x[1]:
 				overflow(x[1])
 
-class SProtocol(flows.Protocol):
+class TXProtocol(flows.Protocol):
 	"""
 	# Protocol class sending HTTP messages.
 	"""
@@ -587,7 +587,7 @@ class SProtocol(flows.Protocol):
 	def f_transfer(self, event):
 		self.f_emit(self._join(event))
 
-class RProtocol(flows.Protocol):
+class RXProtocol(flows.Protocol):
 	"""
 	# Protocol class receiving HTTP messages.
 	"""
@@ -631,13 +631,13 @@ class RProtocol(flows.Protocol):
 		self.f_emit(self._fork(event))
 
 def allocate_client_protocol(version:bytes=b'HTTP/1.1'):
-	pi = RProtocol(version, RProtocol.allocate_server_response)
-	po = SProtocol(version, SProtocol.initiate_server_request)
+	pi = RXProtocol(version, RXProtocol.allocate_server_response)
+	po = TXProtocol(version, TXProtocol.initiate_server_request)
 	index = ('http', None)
 	return (index, (pi, po))
 
 def allocate_server_protocol(version:bytes=b'HTTP/1.1'):
-	pi = RProtocol(version, RProtocol.allocate_client_request)
-	po = SProtocol(version, SProtocol.initiate_client_response)
+	pi = RXProtocol(version, RXProtocol.allocate_client_request)
+	po = TXProtocol(version, TXProtocol.initiate_client_response)
 	index = ('http', None)
 	return (index, (pi, po))
