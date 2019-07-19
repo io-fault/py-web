@@ -42,6 +42,7 @@ from .. import http
 from .. import agent
 
 from ...security import openssl as pki
+from ...security import kprotocol as ksecurity
 certificates = os.environ.get('SSL_CERT_FILE', '/etc/ssl/cert.pem')
 try:
 	with open(certificates, 'rb') as f:
@@ -205,8 +206,8 @@ class Download(kcore.Context):
 
 		if struct['scheme'] == 'https':
 			tls_transport = security_context.connect(struct['host'].encode('idna'))
-			tls_ts = (tls_transport, kio.security_operations(tls_transport))
-			tls_channels = (('security', tls_transport), kflows.Transports.create([tls_ts]))
+			tls_ts = ksecurity.allocate(tls_transport)
+			tls_channels = (('security', tls_transport), tls_ts)
 			self.dl_tls = tls_transport
 
 			tp.tp_extend([tls_channels])
