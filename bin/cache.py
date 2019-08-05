@@ -43,6 +43,7 @@ from .. import agent
 
 from ...security import openssl as pki
 from ...security import kprotocol as ksecurity
+
 certificates = os.environ.get('SSL_CERT_FILE', '/etc/ssl/cert.pem')
 try:
 	with open(certificates, 'rb') as f:
@@ -96,7 +97,7 @@ class Download(kcore.Context):
 		headers = [
 			(b'Host', struct['host'].encode('idna')),
 			(b'Accept', b"application/octet-stream, */*"),
-			(b'User-Agent', b"curl/5.0"),
+			(b'User-Agent', b"curl/7.54.0"),
 			(b'Connection', b'close'),
 		]
 
@@ -194,6 +195,7 @@ class Download(kcore.Context):
 
 		from ...terminal.format.url import f_struct
 		from ...terminal import matrix
+
 		screen = matrix.Screen()
 		struct['fragment'] = '[%s]' %(str(endpoint.address),)
 		struct['port'] = str(int(endpoint.port))
