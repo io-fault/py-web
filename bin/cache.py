@@ -163,7 +163,6 @@ class Download(kcore.Context):
 			i = tls.status()
 			print('%s [%s]' %(i[0], i[3]))
 			print('\thostname:', tls.hostname.decode('idna'))
-			print('\tverror:', tls.verror or '[None: Verification Success]')
 			print('\tapplication:', tls.application)
 			print('\tprotocol:', tls.protocol)
 			print('\tstandard:', tls.standard)
