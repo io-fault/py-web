@@ -27,6 +27,7 @@ import collections
 
 from ...system import files
 from ...system import process
+from ...system import network
 
 from ...time import types as timetypes
 from ...internet import ri
@@ -36,21 +37,15 @@ from ...kernel import core as kcore
 from ...kernel import flows as kflows
 from ...kernel import io as kio
 
-from ...system import network
-
 from .. import http
 from .. import agent
 
-from ...security import openssl as pki
 from ...security import kprotocol as ksecurity
 
-certificates = os.environ.get('SSL_CERT_FILE', '/etc/ssl/cert.pem')
 try:
-	with open(certificates, 'rb') as f:
-		security_context = pki.Context(certificates=(f.read(),))
-except:
-	security = None
-	securtiy_context = None
+	security_context = ksecurity.load('client').Context()
+except ImportError:
+	security_context = None
 
 class Download(kcore.Context):
 	dl_monitor = None
@@ -161,14 +156,13 @@ class Download(kcore.Context):
 		if self.dl_tls:
 			tls = self.dl_tls
 			i = tls.status()
-			print('%s [%s]' %(i[0], i[3]))
+			print('%s [%s]' %(i[0], i[2]))
 			print('\thostname:', tls.hostname.decode('idna'))
 			print('\tapplication:', tls.application)
 			print('\tprotocol:', tls.protocol)
-			print('\tstandard:', tls.standard)
 			fields = '\n\t'.join([
 				'%s: %r' %(k, v)
-				for k, v in tls.peer_certificate.subject
+				for k, v in tls.peer.subject
 			])
 			print('\t'+fields)
 		else:
