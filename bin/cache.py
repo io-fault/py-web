@@ -182,8 +182,7 @@ class Download(kcore.Context):
 		self._dl_xfer = xact
 		xact.xact_context.io_execute()
 
-	def dl_dispatch(self, url):
-		struct, endpoint = url # ri.parse(x), kio.Endpoint(y)
+	def dl_dispatch(self, struct, endpoint):
 		req = self.dl_request(struct)
 
 		from ...terminal.format.url import f_struct
@@ -197,7 +196,8 @@ class Download(kcore.Context):
 		sys.stderr.buffer.flush()
 
 		inv = self.dl_request(struct)
-		tp = kio.Transport.from_endpoint(self.system.connect(endpoint))
+		fd = network.connect(endpoint)
+		tp = kio.Transport.from_endpoint(self.system.allocate_transport(fd))
 
 		if struct['scheme'] == 'https':
 			tls_transport = security_context.connect(struct['host'].encode('idna'))
@@ -232,11 +232,10 @@ class Download(kcore.Context):
 		lendpoints = []
 		for struct, x in endpoints:
 			if x.protocol == 'internet-names':
-				cname, a = network.select_transports(x.address, 'https')
-				for tptype, af, addr, port in a:
-					y = kio.endpoint(af, addr, int(port))
-					print('Possible host:', y)
-					lendpoints.append((struct, y))
+				cname, a = network.select_endpoints(x.address, 'https')
+				for ep in a:
+					print('Possible host:', str(ep))
+					lendpoints.append((struct, ep))
 			else:
 				lendpoints.append((struct, x))
 
@@ -244,7 +243,7 @@ class Download(kcore.Context):
 			self.terminate()
 			return
 
-		hc = self.dl_dispatch(lendpoints[0])
+		hc = self.dl_dispatch(*lendpoints[0])
 		self.controller.scheduling()
 		self._r = self.controller.scheduler.recurrence(self.dl_status)
 
