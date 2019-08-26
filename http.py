@@ -1,13 +1,12 @@
 """
-# IETF HTTP tools for &..io based applications.
+# IETF HTTP tools for &..kernel based applications.
 
-# &.http provides foundations for clients and servers. The high-level
-# interfaces are managed by &..web.
+# &.http provides foundations for clients and servers. &.agent provides client
+# transaction contexts &.service provides server transaction contexts.
 
 # [ Properties ]
 # /HeaderSequence/
-	# Type annotation for the header sequence used by &Layer instances,
-	# &Layer.header_sequence.
+	# Type annotation for the header sequence used by &Structures instances.
 """
 import typing
 import collections
@@ -21,22 +20,14 @@ from ..internet.data import http as protocoldata # On disk (shared) hash for thi
 from ..internet import http as protocolcore
 
 from ..internet import media
+from ..internet import ri
 
 from ..kernel import core
 from ..kernel import flows
 
-import operator
-length_string = tools.compose(operator.methodcaller('encode', 'utf-8'), str, len)
-length_strings = tools.compose(operator.methodcaller('encode', 'utf-8'), str, sum, tools.partial(map,len))
-del operator
-
 HeaderSequence = typing.Sequence[typing.Tuple[bytes, bytes]]
 
-def decode_number(string, int=int):
-	ustring = string.decode('ascii')
-	return int(ustring, 10)
-
-def ranges(length, range_header):
+def ranges(length, range_header, decode_number=int):
 	"""
 	# Generator producing the ranges specified by the given Range header.
 
@@ -78,11 +69,13 @@ def ranges(length, range_header):
 
 class Structures(object):
 	"""
-	# Manages a sequence of HTTP and cached access to specific ones.
+	# Manages a sequence of HTTP headers and cached access to specific ones.
 
-	# Primarily used to extract information from received headers, but also useful
-	# for preparing headers to be sent.
+	# Primarily used to extract information from received client or server headers.
 	"""
+
+	_uri_struct = None
+	_uri_parts = None
 
 	def __init__(self, headers:HeaderSequence, *local:bytes):
 		"""
@@ -95,6 +88,7 @@ class Structures(object):
 			# Additional headers that should have cached access.
 		"""
 		self.cache = {k.lower():None for k in local}
+		self.has = self.cache.__contains__
 		self.cookies = []
 		self.headers = headers
 		self._init_headers(headers)
@@ -123,7 +117,65 @@ class Structures(object):
 				# Used to support cached headers local to an instance.
 				c[k] = v
 
+		if b':uri' in c:
+			pair = self.uri.split('?', 1)
+			self._uri_path = pair[0]
+
+			if len(pair) > 1:
+				self._uri_query = pair[1]
+			else:
+				self._uri_query = None
+
 		return self
+
+	def _init_uri(self, uri=None):
+		self._uri_parts = ri.Parts('authority', 'http', self.host, self._uri_path, self._uri_query, None)
+		self._uri_struct = ri.structure(self._uri_parts)
+
+	@property
+	def method(self) -> str:
+		"""
+		# The method as a &str instance.
+		"""
+		return self.cache[b':method'].decode('utf-8', errors='surrogateescape')
+
+	@property
+	def uri(self) -> str:
+		"""
+		# The request URI as a &str instance.
+		"""
+		return self.cache[b':uri'].decode('utf-8', errors='surrogateescape')
+
+	@property
+	def pathstring(self) -> str:
+		"""
+		# The path portion of the URI as a string.
+		"""
+		return self._uri_path
+
+	@property
+	def path(self) -> typing.Sequence[str]:
+		"""
+		# The sequence of path items in pathstring.
+		"""
+
+		if self._uri_struct is not None:
+			return self._uri_struct['path']
+		else:
+			self._init_uri()
+			return self._uri_struct['path']
+
+	@property
+	def query(self) -> typing.Optional[dict]:
+		"""
+		# The query parameters of the URI.
+		"""
+
+		if self._uri_struct is not None:
+			return self._uri_struct.get('query')
+		else:
+			self._init_uri()
+			return self._uri_struct.get('query')
 
 	@property
 	def upgrade(self) -> bool:
@@ -161,27 +213,6 @@ class Structures(object):
 
 		# no entity body
 		return None
-
-	def declare_content_length(self, length:int):
-		"""
-		# Add a content length header.
-		"""
-
-		assert length >= 0
-
-		hs = self.headers
-		el = str(length).encode('ascii')
-
-		self.cache[b'content-length'] = el
-		hs.append((b'Content-Length', el))
-
-	def declare_variable_content(self):
-		"""
-		# Add header for chunked transfer encoding.
-		"""
-
-		hs = self.headers
-		hs.append((b'Transfer-Encoding', b'chunked'))
 
 	def byte_ranges(self, length):
 		"""
@@ -267,6 +298,9 @@ class Structures(object):
 			b'Vary',
 
 			b'X-Forwarded-For',
+
+			b':Method',
+			b':URI',
 		]
 	)
 

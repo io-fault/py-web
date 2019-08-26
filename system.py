@@ -1,13 +1,113 @@
-from ..internet import media
+"""
+# System interfaces supporting web services.
+"""
+import itertools
 
+from ..internet import media
+from ..system.files import Path
+from ..system import memory
 from . import xml as libxml
+
+def render_xml_directory_listing(xml, route):
+	"""
+	# Iterator producing the XML elements describing the directory's content.
+	"""
+
+	get_type = media.types.get
+
+	dl, fl = route.subnodes()
+	for f in fl:
+		t = get_type(f.extension, 'application/octet-stream')
+		try:
+			ct, lm, size = f.meta()
+			lm = lm.select('iso')
+			ct = ct.select('iso')
+		except FileNotFoundError:
+			continue
+
+		yield from xml.element('resource', None,
+			('created', ct),
+			('modified', lm),
+			('type', t),
+			('size', str(size)),
+			identifier=f.identifier,
+		)
+
+	for d in dl:
+		try:
+			ct, lm, size = d.meta()
+			lm = lm.select('iso')
+			ct = ct.select('iso')
+		except FileNotFoundError:
+			continue
+
+		yield from xml.element('directory', None,
+			('created', ct),
+			('modified', lm),
+			identifier=d.identifier,
+		)
+
+def render_directory_listing(route):
+	"""
+	# Object directory listing.
+	"""
+	get_type = media.types.get
+
+	dl, fl = route.subnodes()
+	for f in fl:
+		t = get_type(f.extension, 'application/octet-stream')
+		try:
+			ct, lm, size = f.meta()
+			lm = lm.select('iso')
+			ct = ct.select('iso')
+		except FileNotFoundError:
+			continue
+
+		yield [f.identifier, ct, lm, t, str(size)]
+
+	for d in dl:
+		try:
+			ct, lm, size = d.meta()
+			lm = lm.select('iso')
+			ct = ct.select('iso')
+		except FileNotFoundError:
+			continue
+
+		yield [f.identifier, ct, lm, None, None]
+
+def join_xml_data(xml, files, ctl, rpath, rpoints):
+	ns="http://if.fault.io/xml/resources"
+	pi=[
+		('xslt-param',
+			'name="javascript" value="' \
+			'/lib/if/directory/index.js' \
+			'"'
+		),
+		('xslt-param',
+			'name="css" value="' \
+			'/lib/if/directory/index.css"'
+		),
+		('xslt-param', 'name="lib" value="/lib/if/directory"'),
+		('xml-stylesheet',
+			'type="text/xsl" href="' \
+			'/lib/if/directory/index.xsl"'
+		),
+	]
+
+	return b''.join(xml.root('index',
+		itertools.chain(
+			files.xml_context_element(xml, ctl.request.host, ctl),
+			files.xml_list_directory(xml, rpath),
+		),
+		('path', '/'+'/'.join(rpath[:-1]) if rpath[:-1] else None),
+		('identifier', rpath[-1] if rpoints else None),
+		pi=pi,
+		namespace=ns
+	))
 
 class Files(object):
 	"""
-	# Transaction processor providing access to a set of search paths in order
-	# to resolve a resource. &Files only supports GET and HEAD methods.
-
-	# The MIME media type is identified by the file extension.
+	# Handler and cache for a union of directories.
 	"""
 
 	stylesheet = "/lib/if/directory.xsl"
@@ -15,63 +115,25 @@ class Files(object):
 	def __init__(self, *routes):
 		self.routes = routes
 
-	def render_directory_listing(self, xml, route):
-		"""
-		# Iterator producing the XML elements describing the directory's content.
-		"""
-		get_type = media.types.get
+	def xml_context_element(self, xml, hostname, root):
+		yield from xml.element('internet', None,
+			('scheme', 'http'),
+			('domain', hostname),
+			('root', root or None),
+		)
 
-		dl, fl = route.subnodes()
-		for f in fl:
-			t = get_type(f.extension, 'application/octet-stream')
-			try:
-				ct, lm, size = f.meta()
-				lm = lm.select('iso')
-				ct = ct.select('iso')
-			except FileNotFoundError:
-				continue
-
-			yield from xml.element('resource', None,
-				('created', ct),
-				('modified', lm),
-				('type', t),
-				('size', str(size)),
-				identifier=f.identifier,
-			)
-
-		for d in dl:
-			try:
-				ct, lm, size = d.meta()
-				lm = lm.select('iso')
-				ct = ct.select('iso')
-			except FileNotFoundError:
-				continue
-
-			yield from xml.element('directory', None,
-				('created', ct),
-				('modified', lm),
-				identifier=d.identifier,
-			)
-
-	def directory(self, xml, tail):
+	def xml_list_directory(self, xml, tail):
 		for x in self.routes:
 			sf = x.extend(tail)
 			if sf.exists() and sf.type() == 'directory':
-				yield from self.render_directory_listing(xml, sf)
+				yield from render_xml_directory_listing(xml, sf)
 
-	def context(self, xml, path, query, px):
-		yield from xml.element('internet', None,
-			('scheme', 'http'),
-			('domain', px.request.host),
-			('root', str(path.context or '') or None),
-		)
-
-	def __call__(self, path, query, px):
-		rpath = path.points
-		method = px.request.method
+	def select(self, ctl, host, rpath):
+		req = ctl.request
+		method = req.method
 
 		# Resolve relative paths to avoid root escapes.
-		rpath = tuple(libroutes.Route._relative_resolution(rpath))
+		rpath = Path._relative_resolution(rpath)
 		rpoints = len(rpath)
 
 		for route in self.routes:
@@ -81,115 +143,83 @@ class Files(object):
 				# first match wins.
 				continue
 
-			if method == b'OPTIONS':
-				px.response.add_header(b'Allow', b'HEAD, GET')
-				px.io_read_null()
-				px.io_write_null()
+			if method == 'OPTIONS':
+				ctl.add_header(b'Allow', b'HEAD,GET')
+				ctl.set_response(204, b'NO CONTENT', None)
+				ctl.accept(None)
+				ctl.connect(None)
 				break
 
 			if file.type() == 'directory':
-				if method != b'GET':
-					px.host.h_error(500, path, query, px, None)
+				if method != 'GET':
+					host.h_error(ctl, 500, None)
 					break
 
-				suffix = str(path)
-				if suffix.endswith('/'):
+				if req.pathstring.endswith('/'):
 					xml = libxml.Serialization()
-					px.response.add_headers([
-						(b'Content-Type', b'text/xml'),
-						(b'Transfer-Encoding', b'chunked'),
-					])
-
-					px.response.OK()
-					px.io_read_null()
-					px.io_iterate_output(
-						[(b''.join(xml.root('index',
-							itertools.chain(
-								self.context(xml, path, query, px),
-								self.directory(xml, rpath),
-							),
-							('path', '/'+'/'.join(rpath[:-1]) if rpath[:-1] else None),
-							('identifier', rpath[-1] if rpoints else None),
-							pi=[
-								('xslt-param', 'name="javascript" value="' + \
-									'/lib/if/directory/index.js' + \
-									'"'
-								),
-								('xslt-param', 'name="css" value="' + \
-									'/lib/if/directory/index.css"'
-								),
-								('xslt-param', 'name="lib" value="/lib/if/directory"'),
-								('xml-stylesheet',
-									'type="text/xsl" href="' + \
-									'/lib/if/directory/index.xsl"'
-								),
-							],
-							namespace="http://fault.io/xml/resources",
-						)),), (b'',)]
-					)
+					xmlstr = join_xml_data(xml, self, ctl, rpath, rpoints)
+					ctl.http_write_output('text/xml', xmlstr)
+					ctl.accept(None)
 				else:
-					# Redirect to '/'.
-					px.io_read_null()
-					px.http_redirect(str(path)+'/')
+					ctl.http_redirect(req.pathstring+'/')
 				break
 
-			if method == b'GET':
+			if method == 'GET':
 				# Only read if the method is GET. HEAD just wants the headers.
 				try:
 					segments = memory.Segments.open(str(file))
 				except PermissionError:
-					px.host.h_error(403, path, query, px, None)
+					host.h_error(ctl, 403, None)
 				else:
-					rsize, ranges = self._init_headers(path, query, px, file)
+					rsize, ranges, cotype = self._init_headers(ctl, host, file)
 					sc = itertools.chain.from_iterable([
 						segments.select(start, stop, 1024*16)
 						for start, stop in ranges
 					])
 
-					px.io_read_null()
-					fi = px.io_iterate_output(((x,) for x in sc))
+					ctl.set_response(b'200', b'OK', rsize, cotype=cotype.encode('utf-8'))
+					ctl.accept(None)
+					fi = ctl.http_iterate_output(((x,) for x in sc))
 				break
-			elif method == b'HEAD':
-				px.response.initiate((b'HTTP/1.1', b'200', b'OK'))
-				rsize, ranges = self._init_headers(path, query, px, file)
-				px.io_write_null()
-				px.io_read_null()
+			elif method == 'HEAD':
+				rsize, ranges, cotype = self._init_headers(ctl, host, file)
+				ctl.set_response(b'204', b'NO CONTENT', rsize, cotype=cotype)
+				ctl.connect(None)
+				ctl.accept(None)
 				break
-			elif method == b'PUT':
-				px.host.h_error(500, path, query, px, None)
+			elif method == 'PUT':
+				host.h_error(ctl, 500, None)
 				break
 			else:
 				# Unknown method.
-				px.host.h_error(500, path, query, px, None)
+				host.h_error(ctl, 500, None)
 				break
 		else:
-			# [End of loop]
+			# resource does not exist.
 
-			if method in (b'GET', b'HEAD', b'OPTIONS', b'PATCH'):
+			if method in ('GET', 'HEAD', 'OPTIONS', 'PATCH'):
 				# No such resource.
-				px.host.h_error(404, path, query, px, None)
+				host.h_error(ctl, 404, None)
 			else:
-				px.host.h_error(500, path, query, px, None)
+				host.h_error(ctl, 500, None)
 
-	def _init_headers(self, path, query, px, route):
+	def _init_headers(self, ctl, host, route):
 		try:
 			maximum = route.size()
 		except PermissionError:
-			px.host.h_error(403, path, query, px, None)
+			host.h_error(ctl, 403, None)
 		else:
-			if b'range' in px.request.headers:
-				ranges = list(px.request.byte_ranges(maximum))
+			if ctl.request.has(b'range'):
+				ranges = list(ctl.request.byte_ranges(maximum))
 				rsize = sum(y-x for x,y in ranges)
 			else:
 				ranges = [(0, None)]
 				rsize = maximum
 
 			t = media.types.get(route.extension, 'application/octet-stream')
-			px.response.add_headers([
-				(b'Content-Type', t.encode('utf-8')),
-				(b'Content-Length', str(rsize).encode('utf-8')),
+			ctl.extend_headers([
 				(b'Last-Modified', route.get_last_modified().select('rfc').encode('utf-8')),
 				(b'Accept-Ranges', b'bytes'),
 			])
 
-		return rsize, ranges
+		return rsize, ranges, t

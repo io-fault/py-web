@@ -9,7 +9,7 @@ import hashlib
 import collections
 
 from ..routes import types as routes
-from ..hkp import library as libhkp
+from ..hkp import library as hkp
 
 from ..system import memory
 from ..system import files
@@ -51,8 +51,8 @@ def route_headers(route, mtype):
 
 def fs_resolve(cache, root, mime_types, accept):
 	"""
-	# Given a root &libhkp.Dictionary whose keys are mime-types and whose
-	# values are &libhkp.Dictionary instances, return the &routes.Selector
+	# Given a root &hkp.Dictionary whose keys are mime-types and whose
+	# values are &hkp.Dictionary instances, return the &routes.Selector
 	# that best matches the acceptable types and the path.
 
 	# This function should be bound to an LRU cache in order to optimize
@@ -83,7 +83,7 @@ def fs_resolve(cache, root, mime_types, accept):
 
 		dictionary = cache.get(dictpath)
 		if dictionary is None:
-			dictionary = libhkp.Dictionary.open(str(dictpath))
+			dictionary = hkp.Dictionary.open(str(dictpath))
 			cache[dictpath] = dictionary
 
 		yield (t, dictionary)

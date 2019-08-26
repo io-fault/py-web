@@ -3,6 +3,7 @@
 """
 import functools
 import typing
+import weakref
 
 from ..context import match
 
@@ -10,124 +11,8 @@ from ..kernel import core
 from ..kernel import flows
 from ..kernel import io
 
+from ..internet import ri
 from . import http
-
-class Invocation(object):
-	"""
-	# An HTTP request received by a service and its determined response headers and status.
-
-	# The parameters should store exact bytes instances that were read by the transport.
-	# Higher-level interfaces, &Structure, should often decode these field accordingly.
-
-	# [ Properties ]
-
-	# /headers/
-		# The sequence of headers held by the parameters of the request.
-	# /method/
-		# The request method held by the parameters.
-	# /path/
-		# The request URI held by the parameters.
-
-	# /status/
-		# The code-description pair designating success or failure.
-		# Usually set by &assign_status.
-	# /response_headers/
-		# Exact sequence of headers that should be serialized to the connection.
-	"""
-
-	projection = False
-	context = None
-
-	@property
-	def headers(self) -> http.HeaderSequence:
-		return self.parameters['request']['headers']
-
-	@property
-	def method(self) -> str:
-		"""
-		# Decoded form of the request's method.
-		"""
-		return self.parameters['request']['method'].decode('ascii')
-
-	@property
-	def path(self) -> str:
-		"""
-		# Decoded form of the request URI's path.
-		"""
-		return self.parameters['request']['path'].decode('ascii')
-
-	def declare_output_length(self, length:int):
-		self.response_headers.append((b'Content-Length', str(length).encode('ascii')))
-		self._output_length = length
-
-	def declare_output_chunked(self):
-		self.response_headers.append((b'Transfer-Encoding', b'chunked'))
-		self._output_length = None
-
-	def __init__(self, exit_method, method:bytes, path:bytes, headers:http.HeaderSequence):
-		self.exit_method = exit_method
-		self.status = None # HTTP response code and string
-		self.response_headers = None
-
-		self.parameters = {
-			'request': {
-				'method': method,
-				'path': path,
-				'headers': headers,
-			},
-		}
-
-	def exit(self):
-		"""
-		# Call the configured exit method signalling the completion of the Request.
-
-		# This is called after all *transfers* associated with the
-		# with the request have been completed. Data may still be in connection
-		# buffers when this is called.
-		"""
-		return self.exit_method()
-
-	def __str__(self):
-		init = " ".join(str(x) for x in (self.method, self.path))
-		headers = self.headers
-		if not headers:
-			return init
-
-		heads = "\n\t".join(x.decode('ascii') + ': ' + y.decode('ascii') for (x,y) in headers)
-		return init + "\n\t" + heads
-
-	def set_response_ok(self):
-		"""
-		# Set response status to OK.
-		# Shorthand for `set_response_status(200, 'OK')`.
-		"""
-		self.status = (200, 'OK')
-		return self
-
-	def set_response_status(self, code:int, description:str):
-		"""
-		# Designate the result of the Protocol Transaction.
-		"""
-		self.status = (code, description)
-		return self
-
-	def set_response_headers(self, headers):
-		"""
-		# Assign the exact sequence of response headers that are to be processed by a client.
-		# Any headers already present will be forgotten.
-		"""
-		self.response_headers = headers
-		return self
-
-	@classmethod
-	def from_request(Class, rline, headers):
-		"""
-		# Initialize an Invocation using a parsed request line and headers.
-		# Primarily, this is used by &fork in a server context.
-		"""
-
-		method, path, version = rline
-		return Class(None, method, path, headers)
 
 class Network(core.Context):
 	"""
@@ -141,35 +26,90 @@ class Network(core.Context):
 		# cases where no (http/header)`Host` is designated by
 		# a request.
 	"""
-	http_default = None
-	Structures = http.Structures
 
-	def __init__(self):
-		self.http_hosts = []
+	http_default = None
+
+	def __init__(self, hostsrc=[]):
+		self.http_hosts = weakref.WeakValueDictionary()
 		self.http_headers = []
+		self._hostsrc = hostsrc
+
+	def net_dispatch(self, host):
+		x = core.Transaction.create(host)
+
+		self.xact_dispatch(x)
+
+		for h_name in host.h_names:
+			self.http_hosts[h_name] = host
 
 	def net_select_host(self, name):
-		pass
+		return self.http_hosts[name]
 
-	def net_route(self, transports):
+	def net_accept(self, invp):
 		"""
 		# Route the protocol transactions to the designated host.
 		# This only enqueues the invocation for subsequent execution.
 		"""
 
 		select = self.net_select_host
-		for x in io:
-			for x in mitre.m_accept():
-				req = x[1][0] # (connect-output, (request, connect-input))
-				s = Structures(req[0])
 
-				h = select(s.host, self.http_default)
-				h.h_route(s, x)
+		first, *remainder = zip(*invp.inv_accept())
+
+		# Recognize host from first request.
+		connect_out, inputctl = first
+		channel_id, parameters, connect_input = inputctl
+
+		method, uri, headers = parameters
+		headers.extend([
+			(b':Method', method),
+			(b':URI', uri)
+		])
+		struct = http.Structures(headers)
+
+		h = select(struct.host)
+		ctl = Controller(invp, struct, connect_out, connect_input, channel_id)
+
+		invp.i_update(h.h_accept)
+		h.h_route(ctl)
+
+		for connect_out, inputctl in remainder:
+			channel_id, parameters, connect_input = inputctl
+
+			method, uri, headers = parameters
+			headers.extend([
+				(b':Method', method),
+				(b':URI', uri)
+			])
+
+			struct = http.Structures(headers)
+			ctl = Controller(invp, struct, connect_out, connect_input, channel_id)
+
+			h.h_route(ctl)
 
 		return h
 
 	def actuate(self):
 		self.provide('network')
+
+		for h in self._hostsrc:
+			self.net_dispatch(h)
+
+		del self._hostsrc
+
+	def terminate(self):
+		if not self.functioning:
+			return
+
+		self.start_termination()
+
+		for x in self.controller.subtransactions:
+			x.terminate()
+
+		self.xact_exit_if_empty()
+
+	def xact_void(self, final):
+		if self.terminating:
+			self.finish_termination()
 
 class Host(core.Context):
 	"""
@@ -193,11 +133,8 @@ class Host(core.Context):
 		# This is the initial path of the router in order to allow "mounts"
 		# at arbitrary positions. Built from &requisite prefixes.
 
-	# /h_index/
-		# The handler for the root path. May be &None if &root can resolve it.
-
 	# /h_allowed_methods/
-		# Option set provided in response to (http/initiate)`OPTIONS * HTTP/1.x`.
+		# Method restrictions for the host. &None if not restricted.
 
 	# /h_mount_point/
 		# The prefix used by the proxy to select the host to connect to.
@@ -213,22 +150,17 @@ class Host(core.Context):
 	"""
 
 	@staticmethod
-	@functools.lru_cache(64)
-	def path(initial, path, len=len, tuple=tuple):
-		iparts = initial.split('/')[1:-1]
-		nip = len(iparts)
-		parts = tuple(path.split('/')[1:])
-		return Path(Path(None, parts[:nip]), (parts[nip:]))
-
-	@staticmethod
-	@functools.lru_cache(16)
-	def strcache(obj):
-		return obj.__str__().encode('ascii')
+	@functools.lru_cache(32)
+	def strcache(obj, str=str):
+		"""
+		# Cache for encoded identifiers often used with a host.
+		"""
+		return str(obj).encode('ascii')
 
 	@staticmethod
 	@functools.lru_cache(16)
 	def descriptioncache(obj):
-		return data_http.code_to_names[obj].replace('_', ' ')
+		return http.protocoldata.codes[obj].replace('_', ' ')
 
 	h_defaults = {
 		'h_options': (),
@@ -243,6 +175,10 @@ class Host(core.Context):
 	h_options = None
 	h_allowed_methods = h_defaults['h_allowed_methods']
 	h_mount_point = None
+
+	def actuate(self):
+		self.provide('host')
+		self.h_configure([y(x) for x, y in self._h_parts.items()])
 
 	def h_enable_options(self, *option_identifiers:str):
 		self.h_options.update(option_identifiers)
@@ -262,14 +198,22 @@ class Host(core.Context):
 		else:
 			self.h_canonical = None
 
-	def h_update_mounts(self, prefixes, root=None, Index=match.SubsequenceScan):
+	def __init__(self, partitions):
+		self._h_parts = partitions
+
+	def h_configure(self, partitions, root=None, Index=match.SubsequenceScan):
 		"""
-		# Update the host interface's root prefixes.
+		# Configure and dispatch the host's partitions.
 		"""
 
-		self.h_prefixes = prefixes
-		self.h_root = Index(prefixes.keys())
-		self.h_index = root
+		hp = self.h_partitions = weakref.WeakValueDictionary()
+		for partctx in partitions:
+			hp[partctx.part_path] = partctx
+
+		self.h_root = Index(hp.keys())
+		for partctx in partitions:
+			xact = core.Transaction.create(partctx)
+			self.xact_dispatch(xact)
 
 	def structure(self):
 		props = [
@@ -281,18 +225,17 @@ class Host(core.Context):
 
 		return (props, None)
 
-	def h_options_request(self, invocation):
+	def h_options_request(self, ctl):
 		"""
 		# Handle a request for (http/initiate)`OPTIONS * HTTP/x.x`.
 		# Individual Resources may support an OPTIONS request as well.
 		"""
-		invocation.protocol_read_void()
-		effect = (b'204', b'NO CONTENT', [
-			(b'Allow', b','.join(list(self.h_allowed_methods)))
-		])
-		invocation.protocol_no_content(effect)
 
-	def h_error(self, code, invocation, exc):
+		ctl.accept(None)
+		ctl.add_header(b'Allow', b','.join(list(self.h_allowed_methods)))
+		ctl.set_response(b'204', b'NO CONTENT', None)
+
+	def h_error(self, ctl, code, exc, description=None):
 		"""
 		# Host error handler. By default, emits an XML document with an assigned stylesheet
 		# that can be retrieved for formatting the error. Additional error data may by
@@ -306,95 +249,165 @@ class Host(core.Context):
 		code_bytes = self.strcache(code)
 
 		if description is None:
-			description = self.descriptioncache(code_bytes)
+			description = self.descriptioncache(code)
 
 		description_bytes = self.strcache(description)
-		errmsg = (
+		errmsg = b''.join([
 			b'<?xml version="1.0" encoding="ascii"?>',
 			b'<?xml-stylesheet type="text/xsl" href="',
 			b'/sys/error.xsl',
 			b'"?>',
-			b'<error xmlns="http://fault.io/xml/failure" domain="/internet/http">',
+			b'<error xmlns="http://if.fault.io/xml/failure" domain="/internet/http">',
 			b'<frame code="' + code_bytes + b'" message="' + description_bytes + b'"/>',
 			b'</error>',
-		)
-
-		px.response.initiate((version, code_bytes, description_bytes))
-		px.response.add_headers([
-			(b'Content-Type', b'text/xml'),
-			(b'Content-Length', http.length_strings(errmsg),)
 		])
 
-		proc = flows.Iteration([errmsg])
-		px.controller.acquire(proc)
-		px.xact_ctx_connect_output(proc)
-		proc.actuate()
+		ctl.set_response(code_bytes, description_bytes, len(errmsg), cotype=b'text/xml')
+		ctl.http_iterate_output([(errmsg,)])
 
-	def h_fallback(self, executable):
+	def h_fallback(self, ctl):
 		"""
 		# Method called when no prefix matches the request.
 
 		# Provided for subclasses in order to override the usual (http/error)`404`.
 		"""
 
-		r = self.h_error(404, Path(None, tuple(path)), query, px, None)
-		executable.protocol_discard_input()
-		return r
+		ctl.accept(None)
+		self.h_error(ctl, 404, None)
 
-	def h_route(self, sector, invocation, dict=dict):
+	def h_route(self, ctl):
 		"""
-		# Called from an I/O (normally input) event, routes the transaction
-		# to the processor bound to the prefix matching the request's.
-
-		# Exceptions *must* fault the Connection, and normally do if called
-		# from the expected mechanism.
+		# Build additional parameters for the request and select a mount point to handle it.
 		"""
 
-		req = px.request
-		path = req.path.decode('utf-8').split('?', 1)
-		path.extend((None,None))
-		path = path[:3]
-		uri_path = path[0]
-
-		parts = ri.Parts('authority', 'http', req.host+':80', *path)
-		ris = ri.structure(parts)
-
-		initial = self.h_root.get(path[0], None)
+		path = ctl.request.pathstring
+		initial = self.h_root.get(path, None)
 
 		# No prefix match.
 		if initial is None:
-			if uri_path == '*' and px.request.method == b"OPTIONS":
-				return self.h_options_request(parts.query, px)
+			if path == '*' and ctl.request.method == 'OPTIONS':
+				return self.h_options_request(ctl)
 			else:
-				return self.h_fallback(px, ris.get('path', ()), parts.query)
+				return self.h_fallback(ctl)
 		else:
-			xact_processor = self.h_prefixes[initial]
-			path = self.path(initial, uri_path)
+			partition = self.h_partitions[initial]
+			return partition.part_select(ctl)
 
-			xact_processor(path, ris.get('query', {}), px)
-
-	def h_transaction_fault(self, sector):
+	def h_accept(self, invp):
 		"""
-		# Called when a protocol transaction's sector faults.
+		# Allocate a sequence of controllers and route them using &h_route.
 		"""
 
-		# The connection should be abruptly interrupted if
-		# the output flow has already been connected.
-		self.h_error(500, path, query, px, exc)
+		for connect_out, inputctl in zip(*invp.inv_accept()):
+			channel_id, parameters, connect_input = inputctl
 
-class Dispatch(core.Executable):
+			method, uri, headers = parameters
+			headers.extend([
+				(b':Method', method),
+				(b':URI', uri)
+			])
+
+			struct = http.Structures(headers)
+			ctl = Controller(invp, struct, connect_out, connect_input, channel_id)
+
+			self.h_route(ctl)
+
+	def terminate(self):
+		self.start_termination()
+
+		for x in self.controller.subtransactions:
+			x.terminate()
+
+		self.xact_exit_if_empty()
+
+	def xact_void(self, final):
+		if self.terminating:
+			self.finish_termination()
+
+class Partition(core.Context):
 	"""
-	# HTTP Request Dispatch.
+	# Base class for host applications.
 	"""
 
-	def http_transfer_output(self, channels):
+	def __init__(self, path):
+		self.part_path = path
+		self.part_depth = path.count('/') - 1
+
+	def structure(self):
+		props = [
+			('part_path', self.part_path),
+		]
+		return (props, None)
+
+	def actuate(self):
+		self.part_init(self.network, self.host)
+
+	def part_select(self, ctl):
+		ctl.accept(None)
+		self.host.h_error(ctl, 500, None, description='MISCONFIGURED')
+
+	def terminate(self):
+		if not self.functioning:
+			return
+
+		self.start_termination()
+
+		for x in self.controller.subtransactions:
+			x.terminate()
+
+		self.xact_exit_if_empty()
+
+	def xact_void(self, final):
+		if self.terminating:
+			self.finish_termination()
+
+class Controller(object):
+	"""
+	# Request execution controller for HTTP services.
+	"""
+
+	def __init__(self, invocations, request:http.Structures, connect_output, connect_input, channel_id):
+		self.invocations = invocations
+		self.request = request
+		self.response_headers = []
+		self._response = None
+		self._connect_output = connect_output
+		self._connect_input = connect_input
+		self._request_channel_id = channel_id
+
+	@property
+	def transport(self) -> io.Transport:
+		return self.invocations.controller.xact_context
+
+	def add_header(self, key, value):
+		self.response_headers.append((key, value))
+
+	def extend_headers(self, pairs):
+		self.response_headers.extend(pairs)
+
+	def set_response(self, code, descr, length, cotype=None):
+		self._response = (code, descr, self.response_headers, length)
+		if cotype is not None:
+			self._http_content_headers(cotype)
+
+	def connect(self, channel):
 		"""
-		# Execute a transfer targeting the output of the &Invocation.
+		# Initiate the response and connect the &channel as the HTTP response entity body.
 		"""
-		xact = core.Transaction.create(io.Transfer())
-		self.xact_dispatch(xact)
-		xact.xact_context.io_flow(channels + [self.exe_invocation._output])
-		xact.io_execute()
+		final = self.request.final
+
+		if final:
+			self.response_headers.append((b'Connection', b'close'))
+			self._connect_output(self._response, channel)
+			self.invocations.i_close()
+		else:
+			self._connect_output(self._response, channel)
+
+	def accept(self, channel):
+		"""
+		# Connect entity body of the request to the given &channel.
+		"""
+		return self._connect_input(channel)
 
 	def http_continue(self, headers):
 		"""
@@ -407,150 +420,127 @@ class Dispatch(core.Executable):
 		# Currently, the HTTP implementation presumes one response
 		# per transaction which is in conflict with HTTP/1.1's CONTINUE.
 		"""
-		raise NotImplementedError("not supported")
+		raise Exception("not supported")
 
 	def http_redirect(self, location):
 		"""
-		# Location header redirect.
+		# Location header redirect using a 302-FOUND response.
 		"""
-		res = self.response
+		self.add_header(b'Location', location.encode('utf-8'))
+		self.set_response(b'302', b'Found', None)
+		self.connect(None)
+		self.accept(None)
 
-		if self.request.connection in {b'close', None}:
-			res.add_header(b'Connection', b'close')
-
-		res.add_header(b'Location', location.encode('ascii'))
-		res.initiate((b'HTTP/1.1', b'302', b'Found')) # XXX: Refer to connection version.
-		self.io_write_null()
-
-	def http_response_content(self, cotype:bytes, colength:int):
+	def _http_content_headers(self, cotype:bytes):
 		"""
 		# Define the type and length of the entity body to be sent.
 		"""
-		self.exe_invocation.add_headers([
-			(b'Content-Type', cotype),
-			(b'Content-Length', colength),
-		])
+
+		l = self._response[-1]
+		rh = self.response_headers
+		self.response_headers.append((b'Content-Type', cotype))
+
+		if l is None:
+			rh.append((b'Transfer-Encoding', b'chunked'))
+		else:
+			lstr = str(l).encode('ascii')
+			rh.append((b'Content-Length', lstr))
 
 	def http_iterate_output(self, iterator:typing.Iterable):
 		"""
 		# Construct a Flow consisting of a single &flows.Iterate instance
 		# used to stream output to the connection protocol state.
 
-		# The &flows.Channel will be dispatched into the &Connection for proper
-		# fault isolation in cases that the iterator produces an exception.
+		# The &io.Transfer transaction will be dispatched into the &io.Transport
+		# supporting the connection to the remote peer.
 		"""
 
-		f = flows.Iteration(iterator)
-		self.http_transfer(f)
-		self.response.initiate((self.request.version, b'200', b'OK'))
-		self.xact_ctx_connect_output(f)
+		itc = flows.Iteration(iterator)
+		output_source = flows.Relay(self.invocations.i_catenate, self._request_channel_id)
 
-		return f
+		xf = io.Transfer()
+		ox = core.Transaction.create(xf)
+		self.invocations.controller.dispatch(ox)
+		xf.io_flow([itc, output_source])
 
-	def http_write_output(self, mime:str, data:bytes):
+		self.connect(output_source)
+
+	def http_write_output(self, cotype:str, data:bytes):
+		"""
+		# Send the given &data to the remote end with the given content type, &cotype.
+		# If other headers are desired, they *must* be configured before running
+		# this method.
+		"""
+
+		self.set_response(b'200', b'OK', len(data), cotype=cotype.encode('ascii'))
+		return self.http_iterate_output([(data,)])
+
+	def http_write_text(self, string:str):
 		"""
 		# Send the given &data to the remote end with the given &mime type.
 		# If other headers are desired, they *must* be configured before running
 		# this method.
 		"""
 
-		self.response.add_headers([
-			(b'Content-Type', mime.encode('utf-8')),
-			(b'Content-Length', length_string(data)),
-		])
+		d = string.encode('utf-8')
+		self.set_response(b'200', b'OK', len(d), cotype=b'text/plain;charset=utf-8')
+		return self.http_iterate_output(((d,),))
 
-		return self.io_iterate_output([(data,)])
-
-	def http_read_file_into_output(self, path:str, str=str):
+	def http_read_file_into_output(self, route, cotype:str=None):
 		"""
-		# Send the file referenced by &path to the remote end as
+		# Send the file referenced by &route to the remote end as
 		# the (HTTP) entity body.
 
-		# The response must be properly initialized before invoking this method.
-
 		# [ Parameters ]
-		# /path/
-			# A string containing the file's path.
-
-		# [ Engineering ]
-		# The Segments instance needs to be retrieved from a cache.
+		# /route/
+			# Route instance selecting the file.
+		# /cotype/
+			# The content type to designate in the response.
 		"""
 
-		f = flows.Iteration(((x,) for x in memory.Segments.open(str(path))))
-		self.xact_dispatch(f)
-		self.xact_ctx_connect_output(f)
+		times, size = route.meta()
+		lm = times[1].select('rfc').encode('utf-8')
+		segments = memory.Segments.open(str(route))
 
-		return f
+		self.add_header(b'Last-Modified', lm)
+		self.set_response(b'200', b'OK', size, cotype=cotype)
 
-	def http_read_input_into_buffer(self, callback, limit=None):
+		self.http_iterate_output((x,) for x in segments)
+
+	def http_send_file_head(self, route, cotype:str=None):
+		"""
+		# Send the file referenced by &route to the remote end as
+		# the (HTTP) entity body.
+
+		# [ Parameters ]
+		# /route/
+			# Route instance selecting the file.
+		# /cotype/
+			# The content type to designate in the response.
+		"""
+
+		times, size = route.meta()
+		lm = times[1].select('rfc').encode('utf-8')
+
+		self.add_header(b'Last-Modified', lm)
+		self.set_response(b'200', b'OK', size, cotype=cotype)
+
+		self.connect(None)
+
+	def http_read_input_into_buffer(self, callback, *args, limit=None):
 		"""
 		# Connect the input Flow to a buffer that executes
 		# the given callback when the entity body has been transferred.
-
-		# This should only be used when connecting to trusted hosts as
-		# a &flows.Collection instance is used to buffer the entire
-		# entire result. This risk can be mitigated by injecting
-		# a &flows.Constraint into the Flow.
 		"""
 
-		f = flows.Collection.buffer()
-		self.xact_dispatch(f)
-		f.atexit(callback)
-		self.xact_ctx_connect_input(f)
+		# Service creation.
+		reader = io.Transfer()
+		rx = core.Transaction.create(reader)
+		storage = flows.Collection.list()
+		recv = flows.Receiver(self.accept)
 
-		return f
+		cb = functools.partial(callback, self, storage.c_storage, *args)
 
-	def http_read_input_into_file(self, route):
-		"""
-		# Connect the input Flow's entity body to the given file.
-
-		# The file will be truncated and data will be written in append mode.
-		"""
-
-		f = self.context.append_file(str(route))
-		self.xact_dispatch(f)
-		self.xact_ctx_connect_input(f)
-
-		return f
-
-	def http_write_kport_to_output(self, fd, limit=None):
-		"""
-		# Transfer data from the &kport, file descriptor, to the output
-		# constrained by the limit.
-
-		# The file descriptor will be closed after the transfer is complete.
-		"""
-
-		f = self.context.connect_input(fd)
-		self.xact_dispatch(f)
-		self.xact_ctx_connect_output(f)
-
-		return f
-
-	def http_read_input_into_kport(self, fd, limit=None):
-		"""
-		# Connect the input Flow's entity body to the given file descriptor.
-		# The state of the open file descriptor will be used to allow inputs
-		# to be connected to arbitrary parts of a file.
-
-		# The file descriptor will be closed after the transfer is complete.
-		"""
-
-		f = self.context.connect_output(fd)
-		self.xact_dispatch(f)
-		self.xact_ctx_connect_input(f)
-
-		return f
-
-	def http_connect_pipeline(self, kpipeline):
-		"""
-		# Connect the input and output to a &..system.execution.PInvocation.
-		# Received data will be sent to the pipeline,
-		# and data emitted from the pipeline will be sent to the remote endpoint.
-		"""
-
-		sp, i, o, e = xact.pipeline(kpipeline)
-		self.xact_ctx_connect_input(fi)
-		self.xact_ctx_connect_output(fo)
-
-		return f
+		self.xact_dispatch(rx)
+		reader.io_flow([recv, storage], completion=cb)
+		recv.f_transfer(None) # connect_input
