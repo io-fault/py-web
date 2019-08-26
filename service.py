@@ -27,7 +27,7 @@ class Network(core.Context):
 		# a request.
 	"""
 
-	http_default = None
+	http_default_host = None
 
 	def __init__(self, hostsrc=[]):
 		self.http_hosts = weakref.WeakValueDictionary()
@@ -43,7 +43,7 @@ class Network(core.Context):
 			self.http_hosts[h_name] = host
 
 	def net_select_host(self, name):
-		return self.http_hosts[name]
+		return self.http_hosts.get(name) or self.http_hosts[self.http_default_host]
 
 	def net_accept(self, invp):
 		"""
