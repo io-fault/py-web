@@ -280,13 +280,13 @@ def test_server_transport(test):
 	# - &library.TXProtocol
 	"""
 	l = []
-	add = (lambda x: l.append(x.m_accept()))
+	add = (lambda x: l.extend(x.inv_accept()))
 
 	ctx, S = testlib.sector()
 	end = flows.Collection.list()
 	start = flows.Channel()
 
-	t = kio.Transport.from_endpoint((('test', None), (start, end)))
+	t = kio.Transport.from_endpoint([('test', None), (start, end)])
 	S.dispatch(kcore.Transaction.create(t))
 	ctx(1)
 
@@ -299,8 +299,8 @@ def test_server_transport(test):
 	start.f_transfer([b"\r\n"])
 	ctx(1)
 
-	connect_output = l[0][0][0]
-	connect_input = l[0][1][0][2]
+	connect_output = l[0][0]
+	connect_input = l[1][0][2]
 
 	r = flows.Receiver(None)
 	S.dispatch(r)
