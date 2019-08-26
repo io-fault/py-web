@@ -153,6 +153,7 @@ class Files(object):
 			if file.type() == 'directory':
 				if method != 'GET':
 					host.h_error(ctl, 500, None)
+					ctl.accept(None)
 					break
 
 				if req.pathstring.endswith('/'):
@@ -178,8 +179,9 @@ class Files(object):
 					])
 
 					ctl.set_response(b'200', b'OK', rsize, cotype=cotype.encode('utf-8'))
-					ctl.accept(None)
 					fi = ctl.http_iterate_output(((x,) for x in sc))
+
+				ctl.accept(None)
 				break
 			elif method == 'HEAD':
 				rsize, ranges, cotype = self._init_headers(ctl, host, file)
@@ -189,10 +191,12 @@ class Files(object):
 				break
 			elif method == 'PUT':
 				host.h_error(ctl, 500, None)
+				ctl.accept(None)
 				break
 			else:
 				# Unknown method.
 				host.h_error(ctl, 500, None)
+				ctl.accept(None)
 				break
 		else:
 			# resource does not exist.
@@ -202,12 +206,14 @@ class Files(object):
 				host.h_error(ctl, 404, None)
 			else:
 				host.h_error(ctl, 500, None)
+			ctl.accept(None)
 
 	def _init_headers(self, ctl, host, route):
 		try:
 			maximum = route.size()
 		except PermissionError:
 			host.h_error(ctl, 403, None)
+			ctl.accept(None)
 		else:
 			if ctl.request.has(b'range'):
 				ranges = list(ctl.request.byte_ranges(maximum))
