@@ -231,9 +231,10 @@ class Host(core.Context):
 		# Individual Resources may support an OPTIONS request as well.
 		"""
 
-		ctl.accept(None)
 		ctl.add_header(b'Allow', b','.join(list(self.h_allowed_methods)))
 		ctl.set_response(b'204', b'NO CONTENT', None)
+		ctl.accept(None)
+		ctl.connect(None)
 
 	def h_error(self, ctl, code, exc, description=None):
 		"""
