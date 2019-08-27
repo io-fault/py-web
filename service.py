@@ -380,20 +380,40 @@ class Controller(object):
 	def transport(self) -> io.Transport:
 		return self.invocations.controller.xact_context
 
-	def add_header(self, key, value):
+	def add_header(self, key:bytes, value:bytes):
+		"""
+		# Append a single header to the header sequence that will be supplied by the response.
+		"""
 		self.response_headers.append((key, value))
 
-	def extend_headers(self, pairs):
+	def extend_headers(self, pairs:http.HeaderSequence):
+		"""
+		# Add a sequence of headers.
+		"""
 		self.response_headers.extend(pairs)
 
-	def set_response(self, code, descr, length, cotype=None):
+	def set_response(self, code:bytes, descr:bytes, length:int, cotype:bytes=None) -> None:
+		"""
+		# Assign the status of the response and designate the transfer encoding.
+		# Excepting &length, all parameters *must* be &bytes instances;
+		# this is intended to emphasize that the fields are being directly inserted
+		# into the wire.
+
+		# If &cotype is &None, neither (http/header)`Content-Length` nor
+		# (http/header)`Transfer-Encoding` will be appended to the headers.
+
+		# If &cotype is not &None and &length is &None, chunked transfer encoding will be used.
+		# If &cotype is not &None and &length is an integer, (http/header)`Content-Length`
+		# will be provided.
+		"""
 		self._response = (code, descr, self.response_headers, length)
 		if cotype is not None:
 			self._http_content_headers(cotype, length)
 
 	def connect(self, channel):
 		"""
-		# Initiate the response and connect the &channel as the HTTP response entity body.
+		# Initiate the response causing headers to be sent and connect the &channel as the
+		# HTTP response entity body. If &channel is &None, no entity body will be supplied.
 		"""
 		final = self.request.final
 
@@ -407,6 +427,7 @@ class Controller(object):
 	def accept(self, channel):
 		"""
 		# Connect entity body of the request to the given &channel.
+		# If &channel is &None, any entity body sent will trigger a fault.
 		"""
 		return self._connect_input(channel)
 
@@ -423,7 +444,7 @@ class Controller(object):
 		"""
 		raise Exception("not supported")
 
-	def http_redirect(self, location):
+	def http_redirect(self, location:str):
 		"""
 		# Location header redirect using a 302-FOUND response.
 		"""
