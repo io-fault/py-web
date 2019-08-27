@@ -198,7 +198,7 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 	# Resolve relative paths to avoid root escapes.
 	rpath = Path._relative_resolution(rpath)
 	rpoints = len(rpath)
-	mrange = req.media_range or media.any_range
+	mrange = req.media_range
 
 	for route in routes:
 		file = route.extend(rpath)
@@ -215,7 +215,7 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 
 		if file.type() == 'directory':
 			if rpath:
-				# First match outside outside of root wins.
+				# First match outside of root wins.
 				routes = [route]
 
 			if method != 'GET':
@@ -237,40 +237,35 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 				ctl.http_redirect(req.pathstring+'/')
 
 			break
+
+		acceptable = mrange.query(media.type_from_string(cotype)) is not None
+		if not acceptable:
+			host.h_error(ctl, 406, None)
+			break
+
+		try:
+			segments = memory.Segments.open(str(file))
+		except PermissionError:
+			host.h_error(ctl, 403, None)
+			break
+
+		cotype = media.types.get(file.extension, 'application/octet-stream')
+		rsize, ranges = route_headers(ctl, host, file)
+		ct = cotype.encode('utf-8')
+
 		if method == 'GET':
-			# Only read if the method is GET. HEAD just wants the headers.
-			try:
-				segments = memory.Segments.open(str(file))
-			except PermissionError:
-				host.h_error(ctl, 403, None)
-			else:
-				cotype = media.types.get(file.extension, 'application/octet-stream')
-				acceptable = mrange.query(media.type_from_string(cotype)) is not None
+			sc = itertools.chain.from_iterable([
+				segments.select(start, stop, 1024*16)
+				for start, stop in ranges
+			])
 
-				if not acceptable:
-					host.h_error(ctl, 406, None)
-				else:
-					rsize, ranges = route_headers(ctl, host, file)
-					sc = itertools.chain.from_iterable([
-						segments.select(start, stop, 1024*16)
-						for start, stop in ranges
-					])
-
-					ctl.set_response(b'200', b'OK', rsize, cotype=cotype.encode('utf-8'))
-					fi = ctl.http_iterate_output(((x,) for x in sc))
-
-			break
+			ctl.set_response(b'200', b'OK', rsize, cotype=ct)
+			ctl.http_iterate_output(((x,) for x in sc))
 		elif method == 'HEAD':
-			cotype = media.types.get(file.extension, 'application/octet-stream')
-			acceptable = mrange.query(media.type_from_string(cotype)) is not None
-			rsize, ranges = route_headers(ctl, host, file)
-			ctl.set_response(b'200', b'OK', rsize, cotype=cotype.encode('utf-8'))
+			ctl.set_response(b'200', b'OK', rsize, cotype=ct)
 			ctl.connect(None)
-			break
-		else:
-			# Unknown method.
-			host.h_error(ctl, 405, None)
-			break
+
+		break
 	else:
 		# resource does not exist.
 		host.h_error(ctl, 404, None)
