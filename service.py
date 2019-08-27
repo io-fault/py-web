@@ -304,6 +304,7 @@ class Host(core.Context):
 		# &http.IO, emit the rendered error to the client.
 		"""
 
+		no_body = (ctl.request.method == "HEAD")
 		strcode = str(code)
 		code_bytes = self.strcache(code)
 
@@ -322,7 +323,10 @@ class Host(core.Context):
 		])
 
 		ctl.set_response(code_bytes, description_bytes, len(errmsg), cotype=b'text/xml')
-		ctl.http_iterate_output([(errmsg,)])
+		if no_body:
+			ctl.connect(None)
+		else:
+			ctl.http_iterate_output([(errmsg,)])
 
 	def h_fallback(self, ctl):
 		"""
