@@ -330,8 +330,6 @@ class Structures(object):
 		"""
 
 		accept = self.cache.get(b'accept')
-		if accept is None:
-			return None
 		return self.media_range_cache(accept)
 
 	@property
