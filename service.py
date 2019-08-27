@@ -111,6 +111,46 @@ class Network(core.Context):
 		if self.terminating:
 			self.finish_termination()
 
+class Partition(core.Context):
+	"""
+	# Base class for host applications.
+	"""
+
+	def __init__(self, path):
+		self.part_path = path
+		if path == '/':
+			self.part_depth = 0
+		else:
+			self.part_depth = path.count('/')
+
+	def structure(self):
+		props = [
+			('part_path', self.part_path),
+		]
+		return (props, None)
+
+	def actuate(self):
+		self.part_init(self.network, self.host)
+
+	def part_select(self, ctl):
+		ctl.accept(None)
+		self.host.h_error(ctl, 500, None, description='MISCONFIGURED')
+
+	def terminate(self):
+		if not self.functioning:
+			return
+
+		self.start_termination()
+
+		for x in self.controller.subtransactions:
+			x.terminate()
+
+		self.xact_exit_if_empty()
+
+	def xact_void(self, final):
+		if self.terminating:
+			self.finish_termination()
+
 class Host(core.Context):
 	"""
 	# An HTTP Host interface for managing routing of service connections,
@@ -215,6 +255,24 @@ class Host(core.Context):
 			xact = core.Transaction.create(partctx)
 			self.xact_dispatch(xact)
 
+	def h_connect(self, partition:Partition):
+		"""
+		# Add the given &partition to the host.
+		"""
+		path = partition.part_path
+
+		self.h_root.add(path)
+		self.h_partitions[path] = partition
+
+		self.xact_dispatch(core.Transaction.create(partition))
+
+	def h_disconnect(self, partition:Partition):
+		"""
+		# Terminate and remove the partition identified by its path.
+		"""
+		partition.controller.terminate()
+		self.h_root.discard(partition.part_path)
+
 	def structure(self):
 		props = [
 			('h_canonical', self.h_canonical),
@@ -314,43 +372,6 @@ class Host(core.Context):
 			self.h_route(ctl)
 
 	def terminate(self):
-		self.start_termination()
-
-		for x in self.controller.subtransactions:
-			x.terminate()
-
-		self.xact_exit_if_empty()
-
-	def xact_void(self, final):
-		if self.terminating:
-			self.finish_termination()
-
-class Partition(core.Context):
-	"""
-	# Base class for host applications.
-	"""
-
-	def __init__(self, path):
-		self.part_path = path
-		self.part_depth = path.count('/') - 1
-
-	def structure(self):
-		props = [
-			('part_path', self.part_path),
-		]
-		return (props, None)
-
-	def actuate(self):
-		self.part_init(self.network, self.host)
-
-	def part_select(self, ctl):
-		ctl.accept(None)
-		self.host.h_error(ctl, 500, None, description='MISCONFIGURED')
-
-	def terminate(self):
-		if not self.functioning:
-			return
-
 		self.start_termination()
 
 		for x in self.controller.subtransactions:
