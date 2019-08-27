@@ -16,7 +16,6 @@ def route_headers(ctl, host, route:routetypes.Selector):
 		maximum = route.size()
 	except PermissionError:
 		host.h_error(ctl, 403, None)
-		ctl.accept(None)
 	else:
 		if ctl.request.has(b'range'):
 			ranges = list(ctl.request.byte_ranges(maximum))
@@ -194,7 +193,6 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 	method = req.method
 	if method not in {'GET', 'HEAD', 'OPTIONS'}:
 		host.h_error(ctl, 405, None)
-		ctl.accept(None)
 		return
 
 	# Resolve relative paths to avoid root escapes.
@@ -211,15 +209,13 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 
 		if method == 'OPTIONS':
 			ctl.add_header(b'Allow', b'HEAD,GET')
-			ctl.set_response(204, b'NO CONTENT', None)
-			ctl.accept(None)
+			ctl.set_response(b'204', b'NO CONTENT', None)
 			ctl.connect(None)
 			break
 
 		if file.type() == 'directory':
 			if method != 'GET':
 				host.h_error(ctl, 500, None)
-				ctl.accept(None)
 				break
 
 			if req.pathstring.endswith('/'):
@@ -227,13 +223,12 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 
 				if preferred_media_type is None:
 					host.h_error(ctl, 406, None)
-					ctl.accept(None)
 				else:
 					selected_type = preferred_media_type[0]
 					materialize = directory_materialization[selected_type]
+
 					data = materialize(ctl, root, rpath, rpoints, routes)
 					ctl.http_write_output(str(selected_type), data)
-					ctl.accept(None)
 			else:
 				ctl.http_redirect(req.pathstring+'/')
 
@@ -260,7 +255,6 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 					ctl.set_response(b'200', b'OK', rsize, cotype=cotype.encode('utf-8'))
 					fi = ctl.http_iterate_output(((x,) for x in sc))
 
-			ctl.accept(None)
 			break
 		elif method == 'HEAD':
 			cotype = media.types.get(file.extension, 'application/octet-stream')
@@ -268,14 +262,11 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 			rsize, ranges = route_headers(ctl, host, file)
 			ctl.set_response(b'200', b'OK', rsize, cotype=cotype.encode('utf-8'))
 			ctl.connect(None)
-			ctl.accept(None)
 			break
 		else:
 			# Unknown method.
 			host.h_error(ctl, 405, None)
-			ctl.accept(None)
 			break
 	else:
 		# resource does not exist.
 		host.h_error(ctl, 404, None)
-		ctl.accept(None)
