@@ -71,14 +71,13 @@ def render_xml_directory_listing(xml, route:routetypes.Selector):
 			identifier=d.identifier,
 		)
 
-def render_directory_listing(route:routetypes.Selector):
+def render_directory_listing(directories, files):
 	"""
 	# Object directory listing.
 	"""
 	get_type = media.types.get
 
-	dl, fl = route.subnodes()
-	for f in fl:
+	for f in files:
 		t = get_type(f.extension, 'application/octet-stream')
 		try:
 			ct, lm, size = f.meta()
@@ -89,7 +88,7 @@ def render_directory_listing(route:routetypes.Selector):
 
 		yield [f.identifier, ct, lm, t, size]
 
-	for d in dl:
+	for d in directories:
 		try:
 			ct, lm, size = d.meta()
 			lm = lm.select('iso')
@@ -106,11 +105,15 @@ def xml_context_element(xml, hostname, root):
 		('root', root or None),
 	)
 
-def xml_list_directory(xml, routes, tail):
+def xml_list_directory(xml, routes, rpath):
 	for x in routes:
-		sf = x.extend(tail)
-		if sf.exists() and sf.type() == 'directory':
+		sf = x.extend(rpath)
+
+		try:
 			yield from render_xml_directory_listing(xml, sf)
+		except PermissionError:
+			# Ignore directories that can't be read.
+			pass
 
 def materialize_xml_index(ctl, root, rpath, rpoints, routes):
 	xml = libxml.Serialization()
@@ -144,23 +147,29 @@ def materialize_xml_index(ctl, root, rpath, rpoints, routes):
 		namespace=ns
 	))
 
+def _render_indexes(routes, rpath):
+	rows = []
+	for r in routes:
+		# Skip directories
+		r = r.extend(rpath)
+
+		try:
+			idx = r.subnodes()
+		except PermissionError:
+			continue
+
+		rows.append(render_directory_listing(*idx))
+	return rows
+
 def materialize_json_index(ctl, root, rpath, rpoints, routes):
 	import json
-	return json.dumps(
-		list(itertools.chain.from_iterable([
-			render_directory_listing(r.extend(rpath))
-			for r in routes
-		]))
-	).encode('utf-8')
+	records = itertools.chain.from_iterable(_render_indexes(routes, rpath))
+	return json.dumps(list(records)).encode('utf-8')
 
 def materialize_text_index(ctl, root, rpath, rpoints, routes):
-	rows = itertools.chain.from_iterable([
-		render_directory_listing(r.extend(rpath))
-		for r in routes
-	])
+	records = itertools.chain.from_iterable(_render_indexes(routes, rpath))
 	return '\n'.join([
-		'\t'.join(map(str, row))
-		for row in rows
+		'\t'.join(map(str, row)) for row in records
 	]).encode('utf-8')
 
 supported_directory_types = (
