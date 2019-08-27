@@ -389,7 +389,7 @@ class Controller(object):
 	def set_response(self, code, descr, length, cotype=None):
 		self._response = (code, descr, self.response_headers, length)
 		if cotype is not None:
-			self._http_content_headers(cotype)
+			self._http_content_headers(cotype, length)
 
 	def connect(self, channel):
 		"""
@@ -432,19 +432,18 @@ class Controller(object):
 		self.connect(None)
 		self.accept(None)
 
-	def _http_content_headers(self, cotype:bytes):
+	def _http_content_headers(self, cotype:bytes, length:int):
 		"""
 		# Define the type and length of the entity body to be sent.
 		"""
 
-		l = self._response[-1]
 		rh = self.response_headers
-		self.response_headers.append((b'Content-Type', cotype))
+		rh.append((b'Content-Type', cotype))
 
-		if l is None:
+		if length is None:
 			rh.append((b'Transfer-Encoding', b'chunked'))
 		else:
-			lstr = str(l).encode('ascii')
+			lstr = str(length).encode('ascii')
 			rh.append((b'Content-Length', lstr))
 
 	def http_iterate_output(self, iterator:typing.Iterable):
