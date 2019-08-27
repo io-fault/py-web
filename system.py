@@ -2,13 +2,37 @@
 # System interfaces supporting web services.
 """
 import itertools
+import typing
 
+from ..routes import types as routetypes
 from ..internet import media
 from ..system.files import Path
 from ..system import memory
+
 from . import xml as libxml
 
-def render_xml_directory_listing(xml, route):
+def route_headers(ctl, host, route:routetypes.Selector):
+	try:
+		maximum = route.size()
+	except PermissionError:
+		host.h_error(ctl, 403, None)
+		ctl.accept(None)
+	else:
+		if ctl.request.has(b'range'):
+			ranges = list(ctl.request.byte_ranges(maximum))
+			rsize = sum(y-x for x,y in ranges)
+		else:
+			ranges = [(0, None)]
+			rsize = maximum
+
+		ctl.extend_headers([
+			(b'Last-Modified', route.get_last_modified().select('rfc').encode('utf-8')),
+			(b'Accept-Ranges', b'bytes'),
+		])
+
+	return rsize, ranges
+
+def render_xml_directory_listing(xml, route:routetypes.Selector):
 	"""
 	# Iterator producing the XML elements describing the directory's content.
 	"""
@@ -47,7 +71,7 @@ def render_xml_directory_listing(xml, route):
 			identifier=d.identifier,
 		)
 
-def render_directory_listing(route):
+def render_directory_listing(route:routetypes.Selector):
 	"""
 	# Object directory listing.
 	"""
@@ -63,7 +87,7 @@ def render_directory_listing(route):
 		except FileNotFoundError:
 			continue
 
-		yield [f.identifier, ct, lm, t, str(size)]
+		yield [f.identifier, ct, lm, t, size]
 
 	for d in dl:
 		try:
@@ -73,9 +97,24 @@ def render_directory_listing(route):
 		except FileNotFoundError:
 			continue
 
-		yield [f.identifier, ct, lm, None, None]
+		yield [d.identifier, ct, lm, None, None]
 
-def join_xml_data(xml, files, ctl, rpath, rpoints):
+def xml_context_element(xml, hostname, root):
+	yield from xml.element('internet', None,
+		('scheme', 'http'),
+		('domain', hostname),
+		('root', root or None),
+	)
+
+def xml_list_directory(xml, routes, tail):
+	for x in routes:
+		sf = x.extend(tail)
+		if sf.exists() and sf.type() == 'directory':
+			yield from render_xml_directory_listing(xml, sf)
+
+def materialize_xml_index(ctl, root, rpath, rpoints, routes):
+	xml = libxml.Serialization()
+
 	ns="http://if.fault.io/xml/resources"
 	pi=[
 		('xslt-param',
@@ -96,8 +135,8 @@ def join_xml_data(xml, files, ctl, rpath, rpoints):
 
 	return b''.join(xml.root('index',
 		itertools.chain(
-			files.xml_context_element(xml, ctl.request.host, ctl),
-			files.xml_list_directory(xml, rpath),
+			xml_context_element(xml, ctl.request.host, root),
+			xml_list_directory(xml, routes, rpath),
 		),
 		('path', '/'+'/'.join(rpath[:-1]) if rpath[:-1] else None),
 		('identifier', rpath[-1] if rpoints else None),
@@ -105,74 +144,105 @@ def join_xml_data(xml, files, ctl, rpath, rpoints):
 		namespace=ns
 	))
 
-class Files(object):
+def materialize_json_index(ctl, root, rpath, rpoints, routes):
+	import json
+	return json.dumps(
+		list(itertools.chain.from_iterable([
+			render_directory_listing(r.extend(rpath))
+			for r in routes
+		]))
+	).encode('utf-8')
+
+def materialize_text_index(ctl, root, rpath, rpoints, routes):
+	rows = itertools.chain.from_iterable([
+		render_directory_listing(r.extend(rpath))
+		for r in routes
+	])
+	return '\n'.join([
+		'\t'.join(map(str, row))
+		for row in rows
+	]).encode('utf-8')
+
+supported_directory_types = (
+	media.type_from_bytes(b'application/json'),
+	media.type_from_bytes(b'text/xml'),
+	media.type_from_bytes(b'text/plain'),
+)
+
+directory_materialization = {
+	media.type_from_bytes(b'application/json'): materialize_json_index,
+	media.type_from_bytes(b'text/xml'): materialize_xml_index,
+	media.type_from_bytes(b'text/plain'): materialize_text_index,
+}
+
+def select_filesystem_resource(routes, ctl, host, root, rpath):
 	"""
-	# Handler and cache for a union of directories.
+	# Identify a target resource and materialize a response.
 	"""
 
-	stylesheet = "/lib/if/directory.xsl"
+	req = ctl.request
 
-	def __init__(self, *routes):
-		self.routes = routes
+	method = req.method
+	if method not in {'GET', 'HEAD', 'OPTIONS'}:
+		host.h_error(ctl, 405, None)
+		ctl.accept(None)
+		return
 
-	def xml_context_element(self, xml, hostname, root):
-		yield from xml.element('internet', None,
-			('scheme', 'http'),
-			('domain', hostname),
-			('root', root or None),
-		)
+	# Resolve relative paths to avoid root escapes.
+	rpath = Path._relative_resolution(rpath)
+	rpoints = len(rpath)
+	mrange = req.media_range or media.any_range
 
-	def xml_list_directory(self, xml, tail):
-		for x in self.routes:
-			sf = x.extend(tail)
-			if sf.exists() and sf.type() == 'directory':
-				yield from render_xml_directory_listing(xml, sf)
+	for route in routes:
+		file = route.extend(rpath)
 
-	def select(self, ctl, host, rpath):
-		req = ctl.request
-		method = req.method
+		if not file.exists():
+			# first match wins.
+			continue
 
-		# Resolve relative paths to avoid root escapes.
-		rpath = Path._relative_resolution(rpath)
-		rpoints = len(rpath)
+		if method == 'OPTIONS':
+			ctl.add_header(b'Allow', b'HEAD,GET')
+			ctl.set_response(204, b'NO CONTENT', None)
+			ctl.accept(None)
+			ctl.connect(None)
+			break
 
-		for route in self.routes:
-			file = route.extend(rpath)
-
-			if not file.exists():
-				# first match wins.
-				continue
-
-			if method == 'OPTIONS':
-				ctl.add_header(b'Allow', b'HEAD,GET')
-				ctl.set_response(204, b'NO CONTENT', None)
+		if file.type() == 'directory':
+			if method != 'GET':
+				host.h_error(ctl, 500, None)
 				ctl.accept(None)
-				ctl.connect(None)
 				break
 
-			if file.type() == 'directory':
-				if method != 'GET':
-					host.h_error(ctl, 500, None)
-					ctl.accept(None)
-					break
+			if req.pathstring.endswith('/'):
+				preferred_media_type = mrange.query(*supported_directory_types)
 
-				if req.pathstring.endswith('/'):
-					xml = libxml.Serialization()
-					xmlstr = join_xml_data(xml, self, ctl, rpath, rpoints)
-					ctl.http_write_output('text/xml', xmlstr)
+				if preferred_media_type is None:
+					host.h_error(ctl, 406, None)
 					ctl.accept(None)
 				else:
-					ctl.http_redirect(req.pathstring+'/')
-				break
+					selected_type = preferred_media_type[0]
+					materialize = directory_materialization[selected_type]
+					data = materialize(ctl, root, rpath, rpoints, routes)
+					ctl.http_write_output(str(selected_type), data)
+					ctl.accept(None)
+			else:
+				ctl.http_redirect(req.pathstring+'/')
 
-			if method == 'GET':
-				# Only read if the method is GET. HEAD just wants the headers.
-				try:
-					segments = memory.Segments.open(str(file))
-				except PermissionError:
-					host.h_error(ctl, 403, None)
+			break
+		if method == 'GET':
+			# Only read if the method is GET. HEAD just wants the headers.
+			try:
+				segments = memory.Segments.open(str(file))
+			except PermissionError:
+				host.h_error(ctl, 403, None)
+			else:
+				cotype = media.types.get(file.extension, 'application/octet-stream')
+				acceptable = mrange.query(media.type_from_string(cotype)) is not None
+
+				if not acceptable:
+					host.h_error(ctl, 406, None)
 				else:
-					rsize, ranges, cotype = self._init_headers(ctl, host, file)
+					rsize, ranges = route_headers(ctl, host, file)
 					sc = itertools.chain.from_iterable([
 						segments.select(start, stop, 1024*16)
 						for start, stop in ranges
@@ -181,51 +251,22 @@ class Files(object):
 					ctl.set_response(b'200', b'OK', rsize, cotype=cotype.encode('utf-8'))
 					fi = ctl.http_iterate_output(((x,) for x in sc))
 
-				ctl.accept(None)
-				break
-			elif method == 'HEAD':
-				rsize, ranges, cotype = self._init_headers(ctl, host, file)
-				ctl.set_response(b'204', b'NO CONTENT', rsize, cotype=cotype)
-				ctl.connect(None)
-				ctl.accept(None)
-				break
-			elif method == 'PUT':
-				host.h_error(ctl, 500, None)
-				ctl.accept(None)
-				break
-			else:
-				# Unknown method.
-				host.h_error(ctl, 500, None)
-				ctl.accept(None)
-				break
-		else:
-			# resource does not exist.
-
-			if method in ('GET', 'HEAD', 'OPTIONS', 'PATCH'):
-				# No such resource.
-				host.h_error(ctl, 404, None)
-			else:
-				host.h_error(ctl, 500, None)
 			ctl.accept(None)
-
-	def _init_headers(self, ctl, host, route):
-		try:
-			maximum = route.size()
-		except PermissionError:
-			host.h_error(ctl, 403, None)
+			break
+		elif method == 'HEAD':
+			cotype = media.types.get(file.extension, 'application/octet-stream')
+			acceptable = mrange.query(media.type_from_string(cotype)) is not None
+			rsize, ranges = route_headers(ctl, host, file)
+			ctl.set_response(b'200', b'OK', rsize, cotype=cotype.encode('utf-8'))
+			ctl.connect(None)
 			ctl.accept(None)
+			break
 		else:
-			if ctl.request.has(b'range'):
-				ranges = list(ctl.request.byte_ranges(maximum))
-				rsize = sum(y-x for x,y in ranges)
-			else:
-				ranges = [(0, None)]
-				rsize = maximum
-
-			t = media.types.get(route.extension, 'application/octet-stream')
-			ctl.extend_headers([
-				(b'Last-Modified', route.get_last_modified().select('rfc').encode('utf-8')),
-				(b'Accept-Ranges', b'bytes'),
-			])
-
-		return rsize, ranges, t
+			# Unknown method.
+			host.h_error(ctl, 405, None)
+			ctl.accept(None)
+			break
+	else:
+		# resource does not exist.
+		host.h_error(ctl, 404, None)
+		ctl.accept(None)
