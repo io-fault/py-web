@@ -214,6 +214,10 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 			break
 
 		if file.type() == 'directory':
+			if rpath:
+				# First match outside outside of root wins.
+				routes = [route]
+
 			if method != 'GET':
 				host.h_error(ctl, 500, None)
 				break
