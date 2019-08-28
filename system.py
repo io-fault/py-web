@@ -238,6 +238,7 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 
 			break
 
+		cotype = media.types.get(file.extension, 'application/octet-stream')
 		acceptable = mrange.query(media.type_from_string(cotype)) is not None
 		if not acceptable:
 			host.h_error(ctl, 406, None)
@@ -249,7 +250,6 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 			host.h_error(ctl, 403, None)
 			break
 
-		cotype = media.types.get(file.extension, 'application/octet-stream')
 		rsize, ranges = route_headers(ctl, host, file)
 		ct = cotype.encode('utf-8')
 
