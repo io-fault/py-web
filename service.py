@@ -487,12 +487,11 @@ class Controller(object):
 
 	def http_redirect(self, location:str):
 		"""
-		# Location header redirect using a 302-FOUND response.
+		# Location header redirect using a 301-MOVED PERMANENTLY response.
 		"""
 		self.add_header(b'Location', location.encode('utf-8'))
-		self.set_response(b'302', b'Found', None)
+		self.set_response(b'301', b'MOVED PERMANENTLY', 0, cotype=b'text/plain')
 		self.connect(None)
-		self.accept(None)
 
 	def _http_content_headers(self, cotype:bytes, length:int):
 		"""
