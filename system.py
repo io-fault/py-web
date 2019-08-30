@@ -1,35 +1,27 @@
 """
 # System interfaces supporting web services.
 """
+import os
+import stat
 import itertools
 import typing
 
+from ..time import types as timetypes
 from ..routes import types as routetypes
 from ..internet import media
 from ..system.files import Path
-from ..system import memory
 
 from . import xml as libxml
 
-def route_headers(ctl, host, route:routetypes.Selector):
-	try:
-		maximum = route.size()
-	except PermissionError:
-		host.h_error(ctl, 403, None)
+def calculate_range(ranges, size, list=list, sum=sum):
+	if ranges is not None:
+		ranges = list(ranges)
+		rsize = sum(y-x for x,y in ranges)
 	else:
-		if ctl.request.has(b'range'):
-			ranges = list(ctl.request.byte_ranges(maximum))
-			rsize = sum(y-x for x,y in ranges)
-		else:
-			ranges = [(0, None)]
-			rsize = maximum
+		ranges = [(0, size)]
+		rsize = size
 
-		ctl.extend_headers([
-			(b'Last-Modified', route.get_last_modified().select('rfc').encode('utf-8')),
-			(b'Accept-Ranges', b'bytes'),
-		])
-
-	return rsize, ranges
+	return (ranges, rsize)
 
 def render_xml_directory_listing(xml, route:routetypes.Selector):
 	"""
@@ -187,7 +179,6 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 	"""
 	# Identify a target resource and materialize a response.
 	"""
-
 	req = ctl.request
 
 	method = req.method
@@ -199,73 +190,101 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 	rpath = Path._relative_resolution(rpath)
 	rpoints = len(rpath)
 	mrange = req.media_range
+	selection_status = None
 
-	for route in routes:
-		file = route.extend(rpath)
+	# Find file.
+	try:
+		if rpoints:
+			for route in routes:
+				if (route/rpath[0]).exists():
+					# first prefix match wins.
+					file = route.extend(rpath)
+					routes = [route]
 
-		if not file.exists():
-			# first match wins.
-			continue
-
-		if method == 'OPTIONS':
-			ctl.add_header(b'Allow', b'HEAD,GET')
-			ctl.set_response(b'204', b'NO CONTENT', None)
-			ctl.connect(None)
-			break
-
-		if file.type() == 'directory':
-			if rpath:
-				# First match outside of root wins.
-				routes = [route]
-
-			if method != 'GET':
-				host.h_error(ctl, 500, None)
-				break
-
-			if req.pathstring.endswith('/'):
-				preferred_media_type = mrange.query(*supported_directory_types)
-
-				if preferred_media_type is None:
-					host.h_error(ctl, 406, None)
-				else:
-					selected_type = preferred_media_type[0]
-					materialize = directory_materialization[selected_type]
-
-					data = materialize(ctl, root, rpath, rpoints, routes)
-					ctl.http_write_output(str(selected_type), data)
+					selection_status = os.stat(str(file))
+					break
 			else:
-				ctl.http_redirect(req.pathstring+'/')
+				# Resource does not exist.
+				host.h_error(ctl, 404, None)
+				return
+		else:
+			selection_status = os.stat(str(routes[0]))
+	except PermissionError:
+		host.h_error(ctl, 403, None)
+		return
+	except FileNotFoundError:
+		host.h_error(ctl, 404, None)
+		return
 
-			break
+	if method == 'OPTIONS':
+		ctl.add_header(b'Allow', b'HEAD,GET')
+		ctl.set_response(b'204', b'NO CONTENT', None)
+		ctl.connect(None)
+		return
 
+	if (selection_status.st_mode & stat.S_IFDIR) or not rpoints:
+		if req.pathstring[-1:] == '/':
+			preferred_media_type = mrange.query(*supported_directory_types)
+
+			if preferred_media_type is None:
+				host.h_error(ctl, 406, None)
+			else:
+				selected_type = preferred_media_type[0]
+				materialize = directory_materialization[selected_type]
+
+				data = materialize(ctl, root, rpath, rpoints, routes)
+				if method == 'GET':
+					ctl.http_write_output(str(selected_type), data)
+				else:
+					cotype = str(selected_type).encode('utf-8')
+					ctl.set_response(b'200', b'OK', len(data), cotype)
+					ctl.connect(None)
+		else:
+			ctl.http_redirect('http://' + req.host + req.pathstring+'/')
+
+		return
+
+	try:
+		cosize = selection_status.st_size
 		cotype = media.types.get(file.extension, 'application/octet-stream')
+
 		acceptable = mrange.query(media.type_from_string(cotype)) is not None
 		if not acceptable:
 			host.h_error(ctl, 406, None)
-			break
+			return
 
-		try:
-			segments = memory.Segments.open(str(file))
-		except PermissionError:
-			host.h_error(ctl, 403, None)
-			break
+		if req.has(b'range'):
+			req_ranges = list(ctl.request.byte_ranges(cosize))
+			res = b'206'
+			descr = b'PARTIAL CONTENT'
+			cr = b'bytes %d-%d/%d' %(req_ranges[0][0], req_ranges[0][1], cosize)
+			ctl.add_header(b'Content-Range', cr)
+		else:
+			req_ranges = None
+			res = b'200'
+			descr = b'OK'
+		ranges, rsize = calculate_range(req_ranges, cosize)
 
-		rsize, ranges = route_headers(ctl, host, file)
 		ct = cotype.encode('utf-8')
+		lm = timetypes.from_unix_timestamp(selection_status.st_mtime)
+
+		ctl.extend_headers([
+			(b'Last-Modified', lm.select('rfc').encode('utf-8')),
+			(b'Accept-Ranges', b'bytes'),
+		])
 
 		if method == 'GET':
-			sc = itertools.chain.from_iterable([
-				segments.select(start, stop, 1024*16)
-				for start, stop in ranges
-			])
-
-			ctl.set_response(b'200', b'OK', rsize, cotype=ct)
-			ctl.http_iterate_output(((x,) for x in sc))
+			start, stop = ranges[0]
+			channel = host.system.read_file_range(str(file), start, stop)
+			ctl.set_response(res, descr, rsize, cotype=ct)
+			ctl.http_dispatch_output(channel)
+			channel.f_transfer(None)
 		elif method == 'HEAD':
-			ctl.set_response(b'200', b'OK', rsize, cotype=ct)
+			ctl.set_response(res, descr, rsize, cotype=ct)
 			ctl.connect(None)
-
-		break
-	else:
-		# resource does not exist.
+	except PermissionError:
+		host.h_error(ctl, 403, None)
+		return
+	except FileNotFoundError:
 		host.h_error(ctl, 404, None)
+		return

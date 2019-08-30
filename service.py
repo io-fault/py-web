@@ -531,7 +531,7 @@ class Controller(object):
 		"""
 
 		itc = flows.Iteration(iterator)
-		return self.http_dispatch_channel(itc)
+		return self.http_dispatch_output(itc)
 
 	def http_write_output(self, cotype:str, data:bytes):
 		"""
