@@ -7,7 +7,6 @@ import itertools
 import typing
 
 from ..time import types as timetypes
-from ..routes import types as routetypes
 from ..internet import media
 from ..system.files import Path
 
@@ -23,14 +22,12 @@ def calculate_range(ranges, size, list=list, sum=sum):
 
 	return (ranges, rsize)
 
-def render_xml_directory_listing(xml, route:routetypes.Selector):
+def render_xml_directory_listing(xml, dl, fl):
 	"""
 	# Iterator producing the XML elements describing the directory's content.
 	"""
-
 	get_type = media.types.get
 
-	dl, fl = route.subnodes()
 	for f in fl:
 		t = get_type(f.extension, 'application/octet-stream')
 		try:
@@ -96,15 +93,31 @@ def xml_context_element(xml, hostname, root):
 		('root', root or None),
 	)
 
-def xml_list_directory(xml, routes, rpath):
+def _render_index_xml(xml, routes, rpath):
+	covered = set()
+	dirs = None
+	files = None
+	dl = ()
+	fl = ()
+
 	for x in routes:
-		sf = x.extend(rpath)
+		covered.update(x.identifier for x in dl)
+		covered.update(x.identifier for x in fl)
 
 		try:
-			yield from render_xml_directory_listing(xml, sf)
+			dl, fl = x.extend(rpath).subnodes()
 		except PermissionError:
 			# Ignore directories that can't be read.
-			pass
+			continue
+
+		if covered:
+			dirs.extend(x for x in dl if x.identifier not in covered)
+			files.extend(x for x in fl if x.identifier not in covered)
+		else:
+			dirs = dl
+			files = fl
+
+	yield from render_xml_directory_listing(xml, dirs, files)
 
 def materialize_xml_index(ctl, root, rpath, rpoints, routes):
 	xml = libxml.Serialization()
@@ -130,7 +143,7 @@ def materialize_xml_index(ctl, root, rpath, rpoints, routes):
 	return b''.join(xml.root('index',
 		itertools.chain(
 			xml_context_element(xml, ctl.request.host, root),
-			xml_list_directory(xml, routes, rpath),
+			_render_index_xml(xml, routes, rpath),
 		),
 		('path', '/'+'/'.join(rpath[:-1]) if rpath[:-1] else None),
 		('identifier', rpath[-1] if rpoints else None),
@@ -138,27 +151,39 @@ def materialize_xml_index(ctl, root, rpath, rpoints, routes):
 		namespace=ns
 	))
 
-def _render_indexes(routes, rpath):
-	rows = []
+def _render_index(routes, rpath):
+	covered = set()
+	dirs = None
+	files = None
+	dl = ()
+	fl = ()
+
 	for r in routes:
-		# Skip directories
-		r = r.extend(rpath)
+		covered.update(x.identifier for x in dl)
+		covered.update(x.identifier for x in fl)
 
 		try:
-			idx = r.subnodes()
+			dl, fl = r.extend(rpath).subnodes()
 		except PermissionError:
+			# Ignore directories that can't be read.
 			continue
 
-		rows.append(render_directory_listing(*idx))
-	return rows
+		if covered:
+			dirs.extend(x for x in dl if x.identifier not in covered)
+			files.extend(x for x in fl if x.identifier not in covered)
+		else:
+			dirs = dl
+			files = fl
+
+	return render_directory_listing(dirs, files)
 
 def materialize_json_index(ctl, root, rpath, rpoints, routes):
 	import json
-	records = itertools.chain.from_iterable(_render_indexes(routes, rpath))
+	records = _render_index(routes, rpath)
 	return json.dumps(list(records)).encode('utf-8')
 
 def materialize_text_index(ctl, root, rpath, rpoints, routes):
-	records = itertools.chain.from_iterable(_render_indexes(routes, rpath))
+	records = _render_index(routes, rpath)
 	return '\n'.join([
 		'\t'.join(map(str, row)) for row in records
 	]).encode('utf-8')
@@ -198,17 +223,18 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 			for route in routes:
 				if (route/rpath[0]).exists():
 					# first prefix match wins.
-					file = route.extend(rpath)
+					selection = route.extend(rpath)
 					routes = [route]
 
-					selection_status = os.stat(str(file))
+					selection_status = os.stat(str(selection))
 					break
 			else:
 				# Resource does not exist.
 				host.h_error(ctl, 404, None)
 				return
 		else:
-			selection_status = os.stat(str(routes[0]))
+			selection = routes[0]
+			selection_status = os.stat(str(selection))
 	except PermissionError:
 		host.h_error(ctl, 403, None)
 		return
@@ -223,7 +249,14 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 		return
 
 	if (selection_status.st_mode & stat.S_IFDIR) or not rpoints:
-		if req.pathstring[-1:] == '/':
+		if req.pathstring[-1:] != '/':
+			ctl.http_redirect('http://' + req.host + req.pathstring+'/')
+			return
+		elif (selection/'.index').exists():
+			# Index override.
+			selection = selection.extend(('.index', 'default.html'))
+			selection_status = os.stat(str(selection))
+		else:
 			preferred_media_type = mrange.query(*supported_directory_types)
 
 			if preferred_media_type is None:
@@ -239,14 +272,11 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 					cotype = str(selected_type).encode('utf-8')
 					ctl.set_response(b'200', b'OK', len(data), cotype)
 					ctl.connect(None)
-		else:
-			ctl.http_redirect('http://' + req.host + req.pathstring+'/')
-
-		return
+			return
 
 	try:
 		cosize = selection_status.st_size
-		cotype = media.types.get(file.extension, 'application/octet-stream')
+		cotype = media.types.get(selection.extension, 'application/octet-stream')
 
 		acceptable = mrange.query(media.type_from_string(cotype)) is not None
 		if not acceptable:
@@ -275,7 +305,7 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 
 		if method == 'GET':
 			start, stop = ranges[0]
-			channel = host.system.read_file_range(str(file), start, stop)
+			channel = host.system.read_file_range(str(selection), start, stop)
 			ctl.set_response(res, descr, rsize, cotype=ct)
 			ctl.http_dispatch_output(channel)
 			channel.f_transfer(None)
