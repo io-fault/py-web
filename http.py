@@ -673,3 +673,10 @@ def allocate_server_protocol(version:bytes=b'HTTP/1.1'):
 	po = TXProtocol(version, TXProtocol.initiate_client_response)
 	index = ('http', None)
 	return (index, (pi, po))
+
+allocate_client_protocol_v1 = allocate_client_protocol
+allocate_server_protocol_v1 = allocate_server_protocol
+
+if False:
+	allocate_client_protocol_v2 = None
+	allocate_server_protocol_v2 = None

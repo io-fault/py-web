@@ -14,6 +14,22 @@ from ..kernel import io
 from ..internet import ri
 from . import http
 
+# XXX: Waiting for refactored kio.Interface
+def _prepare_http_transports_v0(ifctx, ports, Protocol=http.allocate_server_protocol):
+	return [(x, (), Protocol()) for x in ports]
+
+def _prepare_http_transports_v1(ifctx, ports, Protocol=http.allocate_server_protocol_v1):
+	return [(x, (), Protocol()) for x in ports]
+
+def _prepare_http_transports_v2(ifctx, ports, Protocol=None):
+	raise Exception("not implemented")
+
+protocols = {
+	'http': _prepare_http_transports_v0, # Adjustable.
+	'http-1': _prepare_http_transports_v1, # Strictly 1.0/1.1 only.
+	'http-2': _prepare_http_transports_v2, # Not implemented
+}
+
 class Network(core.Context):
 	"""
 	# System Context for managing a set of &Host instances.
