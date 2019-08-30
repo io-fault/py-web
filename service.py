@@ -507,6 +507,20 @@ class Controller(object):
 			lstr = str(length).encode('ascii')
 			rh.append((b'Content-Length', lstr))
 
+	def http_dispatch_output(self, channel):
+		"""
+		# Dispatch the given &channel using a new &io.Transfer instance into &invocations'
+		# &io.Transport transaction.
+		"""
+		output_source = flows.Relay(self.invocations.i_catenate, self._request_channel_id)
+
+		xf = io.Transfer()
+		ox = core.Transaction.create(xf)
+		self.invocations.controller.dispatch(ox)
+		xf.io_flow([channel, output_source])
+
+		self.connect(output_source)
+
 	def http_iterate_output(self, iterator:typing.Iterable):
 		"""
 		# Construct a Flow consisting of a single &flows.Iterate instance
@@ -517,14 +531,7 @@ class Controller(object):
 		"""
 
 		itc = flows.Iteration(iterator)
-		output_source = flows.Relay(self.invocations.i_catenate, self._request_channel_id)
-
-		xf = io.Transfer()
-		ox = core.Transaction.create(xf)
-		self.invocations.controller.dispatch(ox)
-		xf.io_flow([itc, output_source])
-
-		self.connect(output_source)
+		return self.http_dispatch_channel(itc)
 
 	def http_write_output(self, cotype:str, data:bytes):
 		"""
