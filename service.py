@@ -86,7 +86,7 @@ class Network(core.Context):
 		ctl = Controller(invp, struct, connect_out, connect_input, channel_id)
 
 		invp.i_update(h.h_accept)
-		h.h_route(ctl)
+		h._h_router(ctl)
 
 		for connect_out, inputctl in remainder:
 			channel_id, parameters, connect_input = inputctl
@@ -100,7 +100,7 @@ class Network(core.Context):
 			struct = http.Structures(headers)
 			ctl = Controller(invp, struct, connect_out, connect_input, channel_id)
 
-			h.h_route(ctl)
+			h._h_router(ctl)
 
 		return h
 
@@ -132,8 +132,10 @@ class Partition(core.Context):
 	# Base class for host applications.
 	"""
 
-	def __init__(self, path):
+	def __init__(self, path, option=None):
+		self.part_option = option
 		self.part_path = path
+
 		if path == '/':
 			self.part_depth = 0
 		else:
@@ -231,10 +233,11 @@ class Host(core.Context):
 	h_options = None
 	h_allowed_methods = h_defaults['h_allowed_methods']
 	h_mount_point = None
+	h_redirects = None
 
 	def actuate(self):
 		self.provide('host')
-		self.h_configure([y(x) for x, y in self._h_parts.items()])
+		self.h_configure([y[0](x, y[1]) for x, y in self._h_parts.items()])
 
 	def h_enable_options(self, *option_identifiers:str):
 		self.h_options.update(option_identifiers)
@@ -256,6 +259,21 @@ class Host(core.Context):
 
 	def __init__(self, partitions):
 		self._h_parts = partitions
+		self._h_router = self.h_route
+
+	def h_set_redirects(self, target, origins):
+		if self.h_redirects is None:
+			self.h_redirects = {}
+			self._h_router = self._h_direct
+
+		handler = functools.partial(self._h_redirected, target)
+
+		for path in origins:
+			self.h_redirects[path] = handler
+
+	def h_clear_redirects(self):
+		del self.h_redirects
+		self._h_router = self.h_route
 
 	def h_configure(self, partitions, root=None, Index=match.SubsequenceScan):
 		"""
@@ -356,7 +374,7 @@ class Host(core.Context):
 
 	def h_route(self, ctl):
 		"""
-		# Build additional parameters for the request and select a mount point to handle it.
+		# Route the request to the identified partition.
 		"""
 
 		path = ctl.request.pathstring
@@ -372,9 +390,17 @@ class Host(core.Context):
 			partition = self.h_partitions[initial]
 			return partition.part_select(ctl)
 
+	@staticmethod
+	def _h_redirected(target, ctl):
+		ctl.accept(None)
+		return ctl.http_redirect(target)
+
+	def _h_direct(self, ctl):
+		return self.h_redirects.get(ctl.request.pathstring, self.h_route)(ctl)
+
 	def h_accept(self, invp):
 		"""
-		# Allocate a sequence of controllers and route them using &h_route.
+		# Allocate a sequence of controllers and process them using &h_route.
 		"""
 
 		for connect_out, inputctl in zip(*invp.inv_accept()):
@@ -389,7 +415,7 @@ class Host(core.Context):
 			struct = http.Structures(headers)
 			ctl = Controller(invp, struct, connect_out, connect_input, channel_id)
 
-			self.h_route(ctl)
+			self._h_router(ctl)
 
 	def terminate(self):
 		self.start_termination()
