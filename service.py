@@ -118,7 +118,7 @@ class Network(core.Context):
 
 		self.start_termination()
 
-		for x in self.controller.subtransactions:
+		for x in self.sector.subtransactions:
 			x.terminate()
 
 		self.xact_exit_if_empty()
@@ -158,7 +158,7 @@ class Partition(core.Context):
 
 		self.start_termination()
 
-		for x in self.controller.subtransactions:
+		for x in self.sector.subtransactions:
 			x.terminate()
 
 		self.xact_exit_if_empty()
@@ -286,7 +286,7 @@ class Host(core.Context):
 		"""
 		# Terminate and remove the partition identified by its path.
 		"""
-		partition.controller.terminate()
+		partition.sector.terminate()
 		self.h_root.discard(partition.part_path)
 
 	def structure(self):
@@ -394,7 +394,7 @@ class Host(core.Context):
 	def terminate(self):
 		self.start_termination()
 
-		for x in self.controller.subtransactions:
+		for x in self.sector.subtransactions:
 			x.terminate()
 
 		self.xact_exit_if_empty()
@@ -419,7 +419,7 @@ class Controller(object):
 
 	@property
 	def transport(self) -> io.Transport:
-		return self.invocations.controller.xact_context
+		return self.invocations.sector.xact_context
 
 	def add_header(self, key:bytes, value:bytes):
 		"""
@@ -516,7 +516,7 @@ class Controller(object):
 
 		xf = io.Transfer()
 		ox = core.Transaction.create(xf)
-		self.invocations.controller.dispatch(ox)
+		self.invocations.sector.dispatch(ox)
 		xf.io_flow([channel, output_source])
 
 		self.connect(output_source)

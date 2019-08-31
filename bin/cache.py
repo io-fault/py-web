@@ -82,7 +82,7 @@ class Download(kcore.Context):
 
 		self.executable.exe_status = 0
 		self._r.terminate()
-		self.controller.terminate()
+		self.sector.terminate()
 
 	def xact_void(self, final):
 		self.dl_response_collected()
@@ -244,8 +244,8 @@ class Download(kcore.Context):
 			return
 
 		hc = self.dl_dispatch(*lendpoints[0])
-		self.controller.scheduling()
-		self._r = self.controller.scheduler.recurrence(self.dl_status)
+		self.sector.scheduling()
+		self._r = self.sector.scheduler.recurrence(self.dl_status)
 
 def main(inv:process.Invocation) -> process.Exit:
 	os.umask(0o137)
