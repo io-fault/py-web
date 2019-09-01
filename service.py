@@ -30,6 +30,237 @@ protocols = {
 	'http-2': _prepare_http_transports_v2, # Not implemented
 }
 
+class Controller(object):
+	"""
+	# Request execution controller for HTTP services.
+	"""
+
+	@classmethod
+	def from_accept(Class, invp, pair):
+		connect_out, (channel_id, parameters, connect_input) = pair
+
+		method, uri, headers = parameters
+		headers.extend([
+			(b':Method', method),
+			(b':URI', uri)
+		])
+
+		struct = http.Structures(headers)
+		struct.method = method.decode('utf-8', errors='surrogateescape')
+		struct.uri = uri = uri.decode('utf-8', errors='surrogateescape')
+		uri = uri.split("?", 1)
+
+		struct.pathstring = uri[0]
+		if uri[1:]:
+			struct.querystring = uri[1]
+
+		return Class(invp, struct, connect_out, connect_input, channel_id)
+
+	def __init__(self, invocations, request:http.Structures, connect_output, connect_input, channel_id):
+		self.invocations = invocations
+		self.request = request
+		self.response_headers = []
+		self._response = None
+		self._connect_output = connect_output
+		self._connect_input = connect_input
+		self._request_channel_id = channel_id
+
+	@property
+	def transport(self) -> io.Transport:
+		return self.invocations.sector.xact_context
+
+	def add_header(self, key:bytes, value:bytes):
+		"""
+		# Append a single header to the header sequence that will be supplied by the response.
+		"""
+		self.response_headers.append((key, value))
+
+	def extend_headers(self, pairs:http.HeaderSequence):
+		"""
+		# Add a sequence of headers.
+		"""
+		self.response_headers.extend(pairs)
+
+	def set_response(self, code:bytes, descr:bytes, length:int, cotype:bytes=None) -> None:
+		"""
+		# Assign the status of the response and designate the transfer encoding.
+		# Excepting &length, all parameters *must* be &bytes instances;
+		# this is intended to emphasize that the fields are being directly inserted
+		# into the wire.
+
+		# If &cotype is &None, neither (http/header)`Content-Length` nor
+		# (http/header)`Transfer-Encoding` will be appended to the headers.
+
+		# If &cotype is not &None and &length is &None, chunked transfer encoding will be used.
+		# If &cotype is not &None and &length is an integer, (http/header)`Content-Length`
+		# will be provided.
+		"""
+		self._response = (code, descr, self.response_headers, length)
+		if cotype is not None:
+			self._http_content_headers(cotype, length)
+
+	def connect(self, channel):
+		"""
+		# Initiate the response causing headers to be sent and connect the &channel as the
+		# HTTP response entity body. If &channel is &None, no entity body will be supplied.
+		"""
+		final = self.request.final
+
+		if final:
+			self.response_headers.append((b'Connection', b'close'))
+			self._connect_output(self._response, channel)
+			self.invocations.i_close()
+		else:
+			self._connect_output(self._response, channel)
+
+	def accept(self, channel):
+		"""
+		# Connect entity body of the request to the given &channel.
+		# If &channel is &None, any entity body sent will trigger a fault.
+		"""
+		return self._connect_input(channel)
+
+	def http_continue(self, headers):
+		"""
+		# Emit a (http/code)`100` continue response
+		# with the given headers. Emitting a continuation
+		# after a non-100 response has been sent will fault
+		# the Transaction.
+
+		# [ Engineering ]
+		# Currently, the HTTP implementation presumes one response
+		# per transaction which is in conflict with HTTP/1.1's CONTINUE.
+		"""
+		raise Exception("not supported")
+
+	def http_redirect(self, location:str):
+		"""
+		# Location header redirect using a 301-MOVED PERMANENTLY response.
+		"""
+		self.add_header(b'Location', location.encode('utf-8'))
+		self.set_response(b'301', b'MOVED PERMANENTLY', 0, cotype=b'text/plain')
+		self.connect(None)
+
+	def _http_content_headers(self, cotype:bytes, length:int):
+		"""
+		# Define the type and length of the entity body to be sent.
+		"""
+
+		rh = self.response_headers
+		rh.append((b'Content-Type', cotype))
+
+		if length is None:
+			rh.append((b'Transfer-Encoding', b'chunked'))
+		else:
+			lstr = str(length).encode('ascii')
+			rh.append((b'Content-Length', lstr))
+
+	def http_dispatch_output(self, channel):
+		"""
+		# Dispatch the given &channel using a new &io.Transfer instance into &invocations'
+		# &io.Transport transaction.
+		"""
+		output_source = flows.Relay(self.invocations.i_catenate, self._request_channel_id)
+
+		xf = io.Transfer()
+		ox = core.Transaction.create(xf)
+		self.invocations.sector.dispatch(ox)
+		xf.io_flow([channel, output_source])
+
+		self.connect(output_source)
+
+	def http_iterate_output(self, iterator:typing.Iterable):
+		"""
+		# Construct a Flow consisting of a single &flows.Iterate instance
+		# used to stream output to the connection protocol state.
+
+		# The &io.Transfer transaction will be dispatched into the &io.Transport
+		# supporting the connection to the remote peer.
+		"""
+
+		itc = flows.Iteration(iterator)
+		return self.http_dispatch_output(itc)
+
+	def http_write_output(self, cotype:str, data:bytes):
+		"""
+		# Send the given &data to the remote end with the given content type, &cotype.
+		# If other headers are desired, they *must* be configured before running
+		# this method.
+		"""
+
+		self.set_response(b'200', b'OK', len(data), cotype=cotype.encode('ascii'))
+		return self.http_iterate_output([(data,)])
+
+	def http_write_text(self, string:str):
+		"""
+		# Send the given &data to the remote end with the given &mime type.
+		# If other headers are desired, they *must* be configured before running
+		# this method.
+		"""
+
+		d = string.encode('utf-8')
+		self.set_response(b'200', b'OK', len(d), cotype=b'text/plain;charset=utf-8')
+		return self.http_iterate_output(((d,),))
+
+	def http_read_file_into_output(self, route, cotype:str=None):
+		"""
+		# Send the file referenced by &route to the remote end as
+		# the (HTTP) entity body.
+
+		# [ Parameters ]
+		# /route/
+			# Route instance selecting the file.
+		# /cotype/
+			# The content type to designate in the response.
+		"""
+
+		times, size = route.meta()
+		lm = times[1].select('rfc').encode('utf-8')
+		segments = memory.Segments.open(str(route))
+
+		self.add_header(b'Last-Modified', lm)
+		self.set_response(b'200', b'OK', size, cotype=cotype)
+
+		self.http_iterate_output((x,) for x in segments)
+
+	def http_send_file_head(self, route, cotype:str=None):
+		"""
+		# Send the file referenced by &route to the remote end as
+		# the (HTTP) entity body.
+
+		# [ Parameters ]
+		# /route/
+			# Route instance selecting the file.
+		# /cotype/
+			# The content type to designate in the response.
+		"""
+
+		times, size = route.meta()
+		lm = times[1].select('rfc').encode('utf-8')
+
+		self.add_header(b'Last-Modified', lm)
+		self.set_response(b'200', b'OK', size, cotype=cotype)
+
+		self.connect(None)
+
+	def http_read_input_into_buffer(self, callback, *args, limit=None):
+		"""
+		# Connect the input Flow to a buffer that executes
+		# the given callback when the entity body has been transferred.
+		"""
+
+		# Service creation.
+		reader = io.Transfer()
+		rx = core.Transaction.create(reader)
+		storage = flows.Collection.list()
+		recv = flows.Receiver(self.accept)
+
+		cb = functools.partial(callback, self, storage.c_storage, *args)
+
+		self.xact_dispatch(rx)
+		reader.io_flow([recv, storage], completion=cb)
+		recv.f_transfer(None) # connect_input
+
 class Network(core.Context):
 	"""
 	# System Context for managing a set of &Host instances.
@@ -61,7 +292,7 @@ class Network(core.Context):
 	def net_select_host(self, name):
 		return self.http_hosts.get(name) or self.http_hosts[self.http_default_host]
 
-	def net_accept(self, invp):
+	def net_accept(self, invp, Constructor=Controller.from_accept):
 		"""
 		# Route the protocol transactions to the designated host.
 		# This only enqueues the invocation for subsequent execution.
@@ -72,35 +303,13 @@ class Network(core.Context):
 		first, *remainder = zip(*invp.inv_accept())
 
 		# Recognize host from first request.
-		connect_out, inputctl = first
-		channel_id, parameters, connect_input = inputctl
-
-		method, uri, headers = parameters
-		headers.extend([
-			(b':Method', method),
-			(b':URI', uri)
-		])
-		struct = http.Structures(headers)
-
-		h = select(struct.host)
-		ctl = Controller(invp, struct, connect_out, connect_input, channel_id)
-
+		first = Constructor(invp, first)
+		h = select(first.request.host)
 		invp.i_update(h.h_accept)
-		h._h_router(ctl)
 
-		for connect_out, inputctl in remainder:
-			channel_id, parameters, connect_input = inputctl
-
-			method, uri, headers = parameters
-			headers.extend([
-				(b':Method', method),
-				(b':URI', uri)
-			])
-
-			struct = http.Structures(headers)
-			ctl = Controller(invp, struct, connect_out, connect_input, channel_id)
-
-			h._h_router(ctl)
+		h._h_router(first)
+		for pair in remainder:
+			h._h_router(Constructor(invp, pair))
 
 		return h
 
@@ -398,24 +607,13 @@ class Host(core.Context):
 	def _h_direct(self, ctl):
 		return self.h_redirects.get(ctl.request.pathstring, self.h_route)(ctl)
 
-	def h_accept(self, invp):
+	def h_accept(self, invp, Constructor=Controller.from_accept):
 		"""
 		# Allocate a sequence of controllers and process them using &h_route.
 		"""
 
-		for connect_out, inputctl in zip(*invp.inv_accept()):
-			channel_id, parameters, connect_input = inputctl
-
-			method, uri, headers = parameters
-			headers.extend([
-				(b':Method', method),
-				(b':URI', uri)
-			])
-
-			struct = http.Structures(headers)
-			ctl = Controller(invp, struct, connect_out, connect_input, channel_id)
-
-			self._h_router(ctl)
+		for pair in zip(*invp.inv_accept()):
+			self._h_router(Constructor(invp, pair))
 
 	def terminate(self):
 		self.start_termination()
@@ -428,213 +626,3 @@ class Host(core.Context):
 	def xact_void(self, final):
 		if self.terminating:
 			self.finish_termination()
-
-class Controller(object):
-	"""
-	# Request execution controller for HTTP services.
-	"""
-
-	def __init__(self, invocations, request:http.Structures, connect_output, connect_input, channel_id):
-		self.invocations = invocations
-		self.request = request
-		self.response_headers = []
-		self._response = None
-		self._connect_output = connect_output
-		self._connect_input = connect_input
-		self._request_channel_id = channel_id
-
-	@property
-	def transport(self) -> io.Transport:
-		return self.invocations.sector.xact_context
-
-	def add_header(self, key:bytes, value:bytes):
-		"""
-		# Append a single header to the header sequence that will be supplied by the response.
-		"""
-		self.response_headers.append((key, value))
-
-	def extend_headers(self, pairs:http.HeaderSequence):
-		"""
-		# Add a sequence of headers.
-		"""
-		self.response_headers.extend(pairs)
-
-	def set_response(self, code:bytes, descr:bytes, length:int, cotype:bytes=None) -> None:
-		"""
-		# Assign the status of the response and designate the transfer encoding.
-		# Excepting &length, all parameters *must* be &bytes instances;
-		# this is intended to emphasize that the fields are being directly inserted
-		# into the wire.
-
-		# If &cotype is &None, neither (http/header)`Content-Length` nor
-		# (http/header)`Transfer-Encoding` will be appended to the headers.
-
-		# If &cotype is not &None and &length is &None, chunked transfer encoding will be used.
-		# If &cotype is not &None and &length is an integer, (http/header)`Content-Length`
-		# will be provided.
-		"""
-		self._response = (code, descr, self.response_headers, length)
-		if cotype is not None:
-			self._http_content_headers(cotype, length)
-
-	def connect(self, channel):
-		"""
-		# Initiate the response causing headers to be sent and connect the &channel as the
-		# HTTP response entity body. If &channel is &None, no entity body will be supplied.
-		"""
-		final = self.request.final
-
-		if final:
-			self.response_headers.append((b'Connection', b'close'))
-			self._connect_output(self._response, channel)
-			self.invocations.i_close()
-		else:
-			self._connect_output(self._response, channel)
-
-	def accept(self, channel):
-		"""
-		# Connect entity body of the request to the given &channel.
-		# If &channel is &None, any entity body sent will trigger a fault.
-		"""
-		return self._connect_input(channel)
-
-	def http_continue(self, headers):
-		"""
-		# Emit a (http/code)`100` continue response
-		# with the given headers. Emitting a continuation
-		# after a non-100 response has been sent will fault
-		# the Transaction.
-
-		# [ Engineering ]
-		# Currently, the HTTP implementation presumes one response
-		# per transaction which is in conflict with HTTP/1.1's CONTINUE.
-		"""
-		raise Exception("not supported")
-
-	def http_redirect(self, location:str):
-		"""
-		# Location header redirect using a 301-MOVED PERMANENTLY response.
-		"""
-		self.add_header(b'Location', location.encode('utf-8'))
-		self.set_response(b'301', b'MOVED PERMANENTLY', 0, cotype=b'text/plain')
-		self.connect(None)
-
-	def _http_content_headers(self, cotype:bytes, length:int):
-		"""
-		# Define the type and length of the entity body to be sent.
-		"""
-
-		rh = self.response_headers
-		rh.append((b'Content-Type', cotype))
-
-		if length is None:
-			rh.append((b'Transfer-Encoding', b'chunked'))
-		else:
-			lstr = str(length).encode('ascii')
-			rh.append((b'Content-Length', lstr))
-
-	def http_dispatch_output(self, channel):
-		"""
-		# Dispatch the given &channel using a new &io.Transfer instance into &invocations'
-		# &io.Transport transaction.
-		"""
-		output_source = flows.Relay(self.invocations.i_catenate, self._request_channel_id)
-
-		xf = io.Transfer()
-		ox = core.Transaction.create(xf)
-		self.invocations.sector.dispatch(ox)
-		xf.io_flow([channel, output_source])
-
-		self.connect(output_source)
-
-	def http_iterate_output(self, iterator:typing.Iterable):
-		"""
-		# Construct a Flow consisting of a single &flows.Iterate instance
-		# used to stream output to the connection protocol state.
-
-		# The &io.Transfer transaction will be dispatched into the &io.Transport
-		# supporting the connection to the remote peer.
-		"""
-
-		itc = flows.Iteration(iterator)
-		return self.http_dispatch_output(itc)
-
-	def http_write_output(self, cotype:str, data:bytes):
-		"""
-		# Send the given &data to the remote end with the given content type, &cotype.
-		# If other headers are desired, they *must* be configured before running
-		# this method.
-		"""
-
-		self.set_response(b'200', b'OK', len(data), cotype=cotype.encode('ascii'))
-		return self.http_iterate_output([(data,)])
-
-	def http_write_text(self, string:str):
-		"""
-		# Send the given &data to the remote end with the given &mime type.
-		# If other headers are desired, they *must* be configured before running
-		# this method.
-		"""
-
-		d = string.encode('utf-8')
-		self.set_response(b'200', b'OK', len(d), cotype=b'text/plain;charset=utf-8')
-		return self.http_iterate_output(((d,),))
-
-	def http_read_file_into_output(self, route, cotype:str=None):
-		"""
-		# Send the file referenced by &route to the remote end as
-		# the (HTTP) entity body.
-
-		# [ Parameters ]
-		# /route/
-			# Route instance selecting the file.
-		# /cotype/
-			# The content type to designate in the response.
-		"""
-
-		times, size = route.meta()
-		lm = times[1].select('rfc').encode('utf-8')
-		segments = memory.Segments.open(str(route))
-
-		self.add_header(b'Last-Modified', lm)
-		self.set_response(b'200', b'OK', size, cotype=cotype)
-
-		self.http_iterate_output((x,) for x in segments)
-
-	def http_send_file_head(self, route, cotype:str=None):
-		"""
-		# Send the file referenced by &route to the remote end as
-		# the (HTTP) entity body.
-
-		# [ Parameters ]
-		# /route/
-			# Route instance selecting the file.
-		# /cotype/
-			# The content type to designate in the response.
-		"""
-
-		times, size = route.meta()
-		lm = times[1].select('rfc').encode('utf-8')
-
-		self.add_header(b'Last-Modified', lm)
-		self.set_response(b'200', b'OK', size, cotype=cotype)
-
-		self.connect(None)
-
-	def http_read_input_into_buffer(self, callback, *args, limit=None):
-		"""
-		# Connect the input Flow to a buffer that executes
-		# the given callback when the entity body has been transferred.
-		"""
-
-		# Service creation.
-		reader = io.Transfer()
-		rx = core.Transaction.create(reader)
-		storage = flows.Collection.list()
-		recv = flows.Receiver(self.accept)
-
-		cb = functools.partial(callback, self, storage.c_storage, *args)
-
-		self.xact_dispatch(rx)
-		reader.io_flow([recv, storage], completion=cb)
-		recv.f_transfer(None) # connect_input
