@@ -38,22 +38,9 @@ class Controller(object):
 	@classmethod
 	def from_accept(Class, invp, pair):
 		connect_out, (channel_id, parameters, connect_input) = pair
-
 		method, uri, headers = parameters
-		headers.extend([
-			(b':Method', method),
-			(b':URI', uri)
-		])
 
-		struct = http.Structures(headers)
-		struct.method = method.decode('utf-8', errors='surrogateescape')
-		struct.uri = uri = uri.decode('utf-8', errors='surrogateescape')
-		uri = uri.split("?", 1)
-
-		struct.pathstring = uri[0]
-		if uri[1:]:
-			struct.querystring = uri[1]
-
+		struct = http.Structures(headers).set_request(method, uri)
 		return Class(invp, struct, connect_out, connect_input, channel_id)
 
 	def __init__(self, invocations, request:http.Structures, connect_output, connect_input, channel_id):

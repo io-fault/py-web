@@ -101,6 +101,23 @@ class Structures(object):
 		self.cookies = []
 		self.headers = headers
 
+	def set_request(self, method:bytes, uri:bytes):
+		self.method = method.decode('utf-8', errors='surrogateescape')
+		uri = self.uri = uri.decode('utf-8', errors='surrogateescape')
+
+		uri = uri.split("?", 1)
+		self.pathstring = uri[0]
+		if uri[1:]:
+			self.querystring = uri[1]
+
+		return self
+
+	def set_status(self, status:bytes, phrase:bytes):
+		self.status = int(status)
+		self.phrase = phrase.decode('utf-8', errors='surrogateescape')
+
+		return self
+
 	@cachedproperty
 	def cache(self):
 		self._init_headers(self.headers)
