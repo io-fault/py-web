@@ -13,6 +13,7 @@ import collections
 import itertools
 
 from ..context import tools
+from ..context.tools import cachedproperty
 from ..time import types as timetypes
 from ..system import memory
 
@@ -74,6 +75,14 @@ class Structures(object):
 	# Primarily used to extract information from received client or server headers.
 	"""
 
+	method = None
+	uri = None
+	pathstring = None
+	querystring = None
+
+	status = None
+	phrase = None
+
 	_uri_struct = None
 	_uri_parts = None
 
@@ -87,11 +96,15 @@ class Structures(object):
 		# /local/
 			# Additional headers that should have cached access.
 		"""
-		self.cache = {k.lower():None for k in local}
-		self.has = self.cache.__contains__
+		self._cache = {k.lower():None for k in local}
+		self.has = self._cache.__contains__
 		self.cookies = []
 		self.headers = headers
-		self._init_headers(headers)
+
+	@cachedproperty
+	def cache(self):
+		self._init_headers(self.headers)
+		return self._cache
 
 	def __str__(self):
 		return '\n'.join([
@@ -105,7 +118,7 @@ class Structures(object):
 		"""
 
 		ch = self.cached_headers
-		c = self.cache
+		c = self._cache
 		for k, v in headers:
 			k = k.lower()
 
@@ -117,72 +130,38 @@ class Structures(object):
 				# Used to support cached headers local to an instance.
 				c[k] = v
 
-		if b':uri' in c:
-			pair = self.uri.split('?', 1)
-			self._uri_path = pair[0]
-
-			if len(pair) > 1:
-				self._uri_query = pair[1]
-			else:
-				self._uri_query = None
-
 		return self
 
-	def _init_uri(self, uri=None):
-		self._uri_parts = ri.Parts('authority', 'http', self.host, self._uri_path, self._uri_query, None)
-		self._uri_struct = ri.structure(self._uri_parts)
+	@cachedproperty
+	def _uri_parts(self):
+		return ri.Parts(
+			'authority', 'http',
+			self.host,
+			self.pathstring, self.querystring, None)
 
-	@property
-	def method(self) -> str:
-		"""
-		# The method as a &str instance.
-		"""
-		return self.cache[b':method'].decode('utf-8', errors='surrogateescape')
-
-	@property
-	def uri(self) -> str:
-		"""
-		# The request URI as a &str instance.
-		"""
-		return self.cache[b':uri'].decode('utf-8', errors='surrogateescape')
-
-	@property
-	def pathstring(self) -> str:
-		"""
-		# The path portion of the URI as a string.
-		"""
-		return self._uri_path
+	@cachedproperty
+	def _uri_struct(self):
+		return ri.structure(self._uri_parts)
 
 	@property
 	def path(self) -> typing.Sequence[str]:
 		"""
 		# The sequence of path items in pathstring.
 		"""
-
-		if self._uri_struct is not None:
-			return self._uri_struct['path']
-		else:
-			self._init_uri()
-			return self._uri_struct['path']
+		return self._uri_struct['path']
 
 	@property
 	def query(self) -> typing.Optional[dict]:
 		"""
 		# The query parameters of the URI.
 		"""
-
-		if self._uri_struct is not None:
-			return self._uri_struct.get('query')
-		else:
-			self._init_uri()
-			return self._uri_struct.get('query')
+		return self._uri_struct.get('query')
 
 	@property
 	def upgrade(self) -> bool:
 		"""
 		# Whether or not the request looking to perform protocol substitution.
 		"""
-
 		return self.connection == b'upgrade'
 
 	@property
@@ -211,7 +190,6 @@ class Structures(object):
 		if te is not None and te.lower().strip() == b'chunked':
 			return -1
 
-		# no entity body
 		return None
 
 	def byte_ranges(self, length):
@@ -222,7 +200,7 @@ class Structures(object):
 		range_str = self.cache.get(b'range')
 		return ranges(length, range_str)
 
-	@property
+	@cachedproperty
 	def upgrade_insecure(self):
 		"""
 		# The (http/header-id)`Upgrade-Insecure-Requests` header as a boolean.
@@ -297,6 +275,7 @@ class Structures(object):
 			b'Via',
 			b'Vary',
 
+			b'Forwarded',
 			b'X-Forwarded-For',
 
 			b':Method',
@@ -323,7 +302,7 @@ class Structures(object):
 		else:
 			return media.any_range # HTTP default.
 
-	@property
+	@cachedproperty
 	def media_range(self):
 		"""
 		# Structured form of the Accept header.
@@ -332,7 +311,7 @@ class Structures(object):
 		accept = self.cache.get(b'accept')
 		return self.media_range_cache(accept)
 
-	@property
+	@cachedproperty
 	def media_type(self) -> media.Type:
 		"""
 		# The structured media type extracted from the (http/header-id)`Content-Type` header.
@@ -340,7 +319,7 @@ class Structures(object):
 
 		return media.type_from_bytes(self.headers[b'content-type'])
 
-	@property
+	@cachedproperty
 	def date(self, parse=(lambda x: timetypes.Timestamp.of(rfc=x))) -> timetypes.Timestamp:
 		"""
 		# Date header timestamp.
@@ -474,7 +453,6 @@ def fork(
 	layer = None
 	internal_overflow = []
 
-	# Pass exception as terminal Layer context.
 	def http_protocol_violation(data):
 		raise Exception(data)
 
