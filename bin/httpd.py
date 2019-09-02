@@ -110,7 +110,7 @@ def parse_network_config(string):
 				target, *endpoints = parameters.split()
 				hc['redirects'][target] = endpoints
 			elif symbol == 'Partition':
-				mount_point, module, allocator, *option = parameters.split(None, 4)
+				mount_point, module, allocator, *option = parameters.split(None, 3)
 				if mount_point[-1] != '/':
 					mount_point += '/'
 
@@ -210,8 +210,19 @@ def create_host(name, config):
 
 	return h
 
-def allocate(network, kports):
+def allocate(optdata, kports):
 	# Interface -> Connections -> (http) Network
+	netcfg = {}
+	for configpath in optdata['host-networks']:
+		netcfg.update(parse_network_config(open(configpath).read()))
+
+	hostset = {
+		host: create_host(host, hcfg)
+		for host, hcfg in netcfg.items()
+	}
+
+	network = service.Network(list(hostset.values()))
+	network.http_default_host = optdata['trap']
 
 	cxns = kio.Connections(network.net_accept)
 	ifs = []
@@ -227,7 +238,7 @@ def allocate(network, kports):
 	# Terminated in reverse order.
 	return kcore.Sequenced([network, cocx, coif])
 
-def main(inv:process.Invocation) -> process.Exit:
+def integrate(name, args):
 	optdata = {
 		'listening-interfaces': [],
 		'host-networks': [],
@@ -235,7 +246,7 @@ def main(inv:process.Invocation) -> process.Exit:
 		'trap': None,
 	}
 
-	for ev in parse_arguments(inv.parameters['system']['name'], inv.args):
+	for ev in parse_arguments(name, args):
 		parameter, options = ev
 		for opt, param  in options:
 			opt = optmap[opt]
@@ -246,9 +257,10 @@ def main(inv:process.Invocation) -> process.Exit:
 			else:
 				optdata[opt] = param
 
-	netcfg = {}
-	for configpath in optdata['host-networks']:
-		netcfg.update(parse_network_config(open(configpath).read()))
+	return optdata
+
+def main(inv:process.Invocation) -> process.Exit:
+	optdata = integrate(inv.parameters['system']['name'], inv.args)
 
 	ifcfg = {}
 	lset = set()
@@ -267,20 +279,12 @@ def main(inv:process.Invocation) -> process.Exit:
 
 	workers = max(int(optdata.get('concurrency', 1)), 1)
 
-	hostset = {
-		host: create_host(host, hcfg)
-		for host, hcfg in netcfg.items()
-	}
-
-	hnetwork = service.Network(list(hostset.values()))
-	hnetwork.http_default_host = optdata['trap']
-
 	kports = {
 		p: kernel.Ports([network.service(x) for x in ep])
 		for p, ep in ifcfg.items()
 	}
 
-	alloc = functools.partial(allocate, hnetwork, kports)
+	alloc = functools.partial(allocate, optdata, kports)
 	dpm = daemon.ProcessManager(alloc(), alloc, concurrency=workers)
 
 	process = ksystem.dispatch(inv, dpm, identifier='http-network-daemon')
