@@ -9,13 +9,20 @@ from ...kernel import core as kcore
 from ...kernel import io as kio
 from ...kernel.test import library as testlib
 
+default_headers =[
+	(b'Host', b'test.fault.io'),
+	(b'Connection', b'keep-alive'),
+]
+
 def req(*headers, host=b'test.fault.io', version=b'HTTP/1.1', uri=b'/test/fault.io.http', method=b'GET',
 		body=b'', ctype=b'text/plain', chunks=()
 	):
 	init = b'%s %s %s\r\n' % (method, uri, version)
 	additional = [
 		(b'Host', host),
+		(b'Connection', b'keep-alive'),
 	]
+
 	if body:
 		l = str(len(body))
 		additional.extend([
@@ -31,8 +38,7 @@ def req(*headers, host=b'test.fault.io', version=b'HTTP/1.1', uri=b'/test/fault.
 		body = b''.join((x+y+b'\r\n') for x,y in zip(sizes, chunks))
 		body += b'0\r\n\r\n'
 
-	if additional:
-		headers = itertools.chain(additional, headers)
+	headers = itertools.chain(additional, headers)
 	header_data = b'\r\n'.join(map(b'%s: %s'.__mod__, headers))
 
 	return (init + header_data + b'\r\n\r\n' + body,)
@@ -64,7 +70,11 @@ def test_fork_headers_no_content(test):
 		closed = True
 	overflow = []
 
-	g = library.fork(allocate_transparent, close, overflow.append)
+	shared = {
+		'disposition': 'server',
+		'version': b'HTTP/1.1',
+	}
+	g = library.fork(shared, allocate_transparent, close, overflow.append)
 	g.send(None)
 
 	r_open, r_close = list(g.send(req()))
@@ -124,6 +134,11 @@ def test_fork_headers_no_content(test):
 def test_join(test):
 	import collections
 
+	shared = {
+		'disposition': 'server',
+		'version': b'HTTP/1.1',
+	}
+
 	overflow = []
 	def ident(x):
 		l, h = x
@@ -135,8 +150,8 @@ def test_join(test):
 	initiate_transparent = (lambda x,y: y)
 
 	c = collections.Counter()
-	j = library.join(initiate_transparent, b'HTTP/1.1', status=c)
-	g = library.fork(allocate_transparent, (lambda: None), overflow.append)
+	j = library.join(shared, initiate_transparent, status=c)
+	g = library.fork(shared, allocate_transparent, (lambda: None), overflow.append)
 	g.send(None); j.send(None)
 
 	r = req()
@@ -180,12 +195,16 @@ def test_TXProtocol_initiate_request(test):
 	"""
 	# - &library.TXProtocol
 	"""
+	shared = {
+		'version': b'HTTP/1.1',
+		'disposition': 'client',
+	}
 	l = []
 	add = (lambda x: l.extend(x.m_correlate()))
 	ctx, S = testlib.sector()
 
 	end = flows.Collection.list()
-	pf = library.TXProtocol(b'HTTP/1.1', library.TXProtocol.initiate_server_request)
+	pf = library.TXProtocol(shared, library.TXProtocol.initiate_server_request)
 
 	io = ('test', None), (flows.Channel(), end)
 	T = kio.Transport.from_endpoint(io)
@@ -202,18 +221,22 @@ def test_TXProtocol_initiate_request(test):
 	(channel_id, connect), = c.m_allocate()
 	connect(inv, None)
 	ctx(2)
-	test/end.c_storage[0][0] == b'GET /test HTTP/1.1'
+	test/end.c_storage[0][0] == (b"GET /test HTTP/1.1" + b"\r\n"*3)
 
 def test_RXProtocol_allocate_request(test):
 	"""
 	# - &library.RXProtocol
 	"""
+	shared = {
+		'version': b'HTTP/1.1',
+		'disposition': 'client',
+	}
 	l = []
 	add = (lambda x: l.extend(x.m_correlate()))
 	ctx, S = testlib.sector()
 
 	end = flows.Collection.list()
-	pf = library.RXProtocol(b'HTTP/1.1', library.RXProtocol.allocate_client_request)
+	pf = library.RXProtocol(shared, library.RXProtocol.allocate_client_request)
 
 	io = ('test', None), (flows.Channel(), end)
 	T = kio.Transport.from_endpoint(io)
@@ -227,7 +250,7 @@ def test_RXProtocol_allocate_request(test):
 	pf.f_transfer(req())
 	ctx(2)
 	inv = l[0][1]
-	test/inv == (b'GET', b'/test/fault.io.http', [(b'Host', b'test.fault.io')])
+	test/inv == (b'GET', b'/test/fault.io.http', default_headers)
 
 def test_client_transport(test):
 	"""
@@ -252,7 +275,7 @@ def test_client_transport(test):
 	(channel_id, connect), = m.m_allocate()
 	connect(inv, None)
 	ctx(1)
-	test/end.c_storage[0][0] == b"GET /test HTTP/1.1"
+	test/end.c_storage[0][0] == (b"GET /test HTTP/1.1" + b"\r\n"*3)
 
 	start.f_transfer([b"HTTP/1.1 200 OK\r\n"])
 	start.f_transfer([b"Content-Length: 100\r\n\r\n"])

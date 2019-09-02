@@ -13,7 +13,7 @@ import collections
 import itertools
 
 from ..context import tools
-from ..context.tools import cachedproperty
+from ..context.tools import cachedproperty, cachedcalls
 from ..time import types as timetypes
 from ..system import memory
 
@@ -72,7 +72,7 @@ class Structures(object):
 	"""
 	# Manages a sequence of HTTP headers and cached access to specific ones.
 
-	# Primarily used to extract information from received client or server headers.
+	# Primarily used to extract information from received response (client) or request (server).
 	"""
 
 	method = None
@@ -102,6 +102,9 @@ class Structures(object):
 		self.headers = headers
 
 	def set_request(self, method:bytes, uri:bytes):
+		"""
+		# Configure the structure as representing a request received by a server.
+		"""
 		self.method = method.decode('utf-8', errors='surrogateescape')
 		uri = self.uri = uri.decode('utf-8', errors='surrogateescape')
 
@@ -113,6 +116,9 @@ class Structures(object):
 		return self
 
 	def set_status(self, status:bytes, phrase:bytes):
+		"""
+		# Configure the structure as representing a response received by a client.
+		"""
 		self.status = int(status)
 		self.phrase = phrase.decode('utf-8', errors='surrogateescape')
 
@@ -308,7 +314,7 @@ class Structures(object):
 		return self.cache.get(b'connection', b'').strip().lower()
 
 	@staticmethod
-	@tools.cachedcalls(32)
+	@cachedcalls(32)
 	def media_range_cache(range_data, parse_range=media.Range.from_bytes):
 		"""
 		# Cached access to a media range header.
@@ -372,8 +378,8 @@ class Structures(object):
 		return cxn == b'close' or not cxn
 
 def join(
+		shared,
 		sequence,
-		protocol_version,
 		status=None,
 
 		rline_ev=protocolcore.Event.rline,
@@ -400,7 +406,7 @@ def join(
 		assert event == fc_initiate
 		nonlocal commands
 
-		rline, headers, content_length = sequence(protocol_version, init)
+		rline, headers, content_length = sequence(shared['version'], init)
 		if content_length is None:
 			commands[fc_transfer] = pchunk
 		else:
@@ -441,7 +447,7 @@ def join(
 			transfer.extend(serialize(out_events))
 
 def fork(
-		allocate, close, overflow,
+		shared, allocate, close, overflow,
 		rline=protocolcore.Event.rline,
 		headers=protocolcore.Event.headers,
 		trailers=protocolcore.Event.trailers,
@@ -461,7 +467,7 @@ def fork(
 	# Split an HTTP stream into flow events for use by &flows.Division.
 	"""
 
-	tokenizer = protocolcore.disassembly()
+	tokenizer = protocolcore.disassembly(disposition=shared['disposition'])
 	tokens = tokenizer.send
 
 	close_state = False # header Connection: close
@@ -588,6 +594,10 @@ class TXProtocol(flows.Protocol):
 	# Protocol class sending HTTP messages.
 	"""
 
+	@property
+	def http_version(self):
+		return self.p_shared['version']
+
 	@staticmethod
 	def initiate_server_request(protocol:bytes, parameter):
 		"""
@@ -604,10 +614,10 @@ class TXProtocol(flows.Protocol):
 		code, description, headers, length = parameter
 		return ((protocol, code, description), headers, length)
 
-	def __init__(self, version:bytes, initiate):
-		self.version = version
+	def __init__(self, state, initiate):
+		self.p_shared = state
 		self._status = collections.Counter()
-		self._state = join(initiate, b'HTTP/1.1', status=self._status)
+		self._state = join(state, initiate, status=self._status)
 		self._join = self._state.send
 		self._join(None)
 
@@ -635,6 +645,10 @@ class RXProtocol(flows.Protocol):
 		(version, code, description), headers = parameter
 		return (code, description, headers), version
 
+	@property
+	def http_version(self):
+		return self.p_shared['version']
+
 	def p_close(self):
 		pass
 
@@ -647,10 +661,10 @@ class RXProtocol(flows.Protocol):
 		self.p_overflow = []
 		return self.p_overflow.append
 
-	def __init__(self, version:bytes, allocate):
-		self.version = version
+	def __init__(self, state, allocate):
+		self.p_shared = state
 		self._status = collections.Counter()
-		self._state = fork(allocate, self.p_close, self.p_overflowing) # XXX: weakmethod
+		self._state = fork(state, allocate, self.p_close, self.p_overflowing) # XXX: weakmethod
 		self._fork = self._state.send
 		self._fork(None)
 
@@ -658,14 +672,22 @@ class RXProtocol(flows.Protocol):
 		self.f_emit(self._fork(event))
 
 def allocate_client_protocol(version:bytes=b'HTTP/1.1'):
-	pi = RXProtocol(version, RXProtocol.allocate_server_response)
-	po = TXProtocol(version, TXProtocol.initiate_server_request)
+	state = {
+		'version': version,
+		'disposition': 'client',
+	}
+	pi = RXProtocol(state, RXProtocol.allocate_server_response)
+	po = TXProtocol(state, TXProtocol.initiate_server_request)
 	index = ('http', None)
 	return (index, (pi, po))
 
 def allocate_server_protocol(version:bytes=b'HTTP/1.1'):
-	pi = RXProtocol(version, RXProtocol.allocate_client_request)
-	po = TXProtocol(version, TXProtocol.initiate_client_response)
+	state = {
+		'version': version,
+		'disposition': 'server',
+	}
+	pi = RXProtocol(state, RXProtocol.allocate_client_request)
+	po = TXProtocol(state, TXProtocol.initiate_client_response)
 	index = ('http', None)
 	return (index, (pi, po))
 
