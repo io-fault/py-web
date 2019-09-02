@@ -473,7 +473,6 @@ def fork(
 	close_state = False # header Connection: close
 	events = iter(())
 	flow_events = []
-	layer = None
 	internal_overflow = []
 
 	def http_protocol_violation(data):
@@ -544,7 +543,7 @@ def fork(
 					local_state[x[0]](x[1])
 
 					if trailer_sequence:
-						layer.trailer(trailer_sequence)
+						pass
 					else:
 						if body:
 							# send the body to the connected Flow
@@ -571,7 +570,6 @@ def fork(
 			raise
 		else:
 			flow_events.append((fc_terminate, http_xact_id, None))
-			layer = None
 
 	# Close state. Signal end.
 	close()
