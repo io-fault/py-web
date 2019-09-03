@@ -41,6 +41,8 @@ def sequence_arguments(igroups, default=None):
 				# Included parameter.
 				yield (group[:2], group[2:])
 				group = default
+			elif not contents:
+				yield (group, None)
 
 		if contents:
 			yield (group, contents[0])
@@ -56,9 +58,17 @@ def parse_arguments(name, args):
 	))
 
 	assert cmdgroups[0][0] is None
-	cmdgroups[0] = (name, cmdgroups[0][1])
 
-	return cmdgroups
+	# Flatten the arguments following the first set of options.
+	remainder = []
+	for x in cmdgroups[1:]:
+		remainder.append(x[0][1])
+		for opt, arg in x[1]:
+			remainder.append(opt)
+			if arg is not None:
+				remainder.append(arg)
+
+	return ((name, cmdgroups[0][1]), remainder)
 
 def merge(target, source):
 	for x in ('names', 'partitions', 'allowed-methods'):
@@ -203,7 +213,9 @@ def parse_interface_config(string, local=None):
 		proto, stack = proto.split(':', 1)
 		stack = stack.strip() or None
 		if stack:
-			stack = stack.split('/')
+			stack = tuple(stack.split('/'))
+		else:
+			stack = ()
 
 		proto = proto.strip('.') # Handle initial section case.
 		parts = {}
@@ -281,7 +293,7 @@ def create_host(name, config):
 
 	return h
 
-def allocate(optdata, kports):
+def allocate_network(optdata, kports):
 	# Interface -> Connections -> (http) Network
 	netcfg = {}
 	for configpath in optdata['host-networks']:
@@ -318,24 +330,24 @@ def integrate(name, args):
 		'trap': None,
 	}
 
-	for ev in parse_arguments(name, args):
-		parameter, options = ev
-		for opt, param  in options:
-			opt = optmap[opt]
-			dv = optdata[opt]
+	optset, arguments = parse_arguments(name, args)
+	for opt, param  in optset[1]:
+		opt = optmap[opt]
+		dv = optdata[opt]
 
-			if isinstance(dv, list):
-				dv.append(param)
-			else:
-				optdata[opt] = param
+		if isinstance(dv, list):
+			dv.append(param)
+		else:
+			optdata[opt] = param
 
-	return optdata
+	return optdata, arguments
 
 def main(inv:process.Invocation) -> process.Exit:
-	optdata = integrate(inv.parameters['system']['name'], inv.args)
+	optdata, arguments = integrate(inv.parameters['system']['name'], inv.args)
 
 	ifcfg = {}
 	lset = set()
+
 	for configpath in optdata['listening-interfaces']:
 		for k, v in (parse_interface_config(open(configpath).read(), local=lset)).items():
 			if k not in ifcfg:
@@ -356,8 +368,9 @@ def main(inv:process.Invocation) -> process.Exit:
 		for p, ep in ifcfg.items()
 	}
 
-	alloc = functools.partial(allocate, optdata, kports)
-	dpm = daemon.ProcessManager(alloc(), alloc, concurrency=workers)
+	alloc = functools.partial(allocate_network, optdata, kports)
+	net = alloc()
+	dpm = daemon.ProcessManager(net, alloc, concurrency=workers)
 
 	process = ksystem.dispatch(inv, dpm, identifier='http-network-daemon')
 	ksystem.set_root_process(process)
