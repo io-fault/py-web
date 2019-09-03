@@ -340,11 +340,12 @@ class Partition(core.Context):
 	def structure(self):
 		props = [
 			('part_path', self.part_path),
+			('part_option', self.part_option),
 		]
 		return (props, None)
 
 	def actuate(self):
-		self.part_init(self.network, self.host)
+		self.part_dispatched(self.part_option)
 
 	def part_select(self, ctl):
 		ctl.accept(None)
@@ -370,10 +371,10 @@ class Files(Partition):
 	# Read-only filesystem union for serving local files.
 	"""
 
-	def part_init(self, net, host):
+	def part_dispatched(self, option):
 		from ..system import files
 		from . import system
-		self.fs_routes = [files.Path.from_path(x) for x in self.part_option.split(':')]
+		self.fs_routes = [files.Path.from_path(x) for x in option.split(':')]
 		self.fs_handler = system.select_filesystem_resource
 
 	def part_select(self, ctl):
