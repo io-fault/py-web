@@ -365,6 +365,22 @@ class Partition(core.Context):
 		if self.terminating:
 			self.finish_termination()
 
+class Files(Partition):
+	"""
+	# Read-only filesystem union for serving local files.
+	"""
+
+	def part_init(self, net, host):
+		from ..system import files
+		from . import system
+		self.fs_routes = [files.Path.from_path(x) for x in self.part_option.split(':')]
+		self.fs_handler = system.select_filesystem_resource
+
+	def part_select(self, ctl):
+		ctl.accept(None)
+		rpath = ctl.request.path[self.part_depth:]
+		return self.fs_handler(self.fs_routes, ctl, self.host, self.part_path, rpath)
+
 class Host(core.Context):
 	"""
 	# An HTTP Host interface for managing routing of service connections,
