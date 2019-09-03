@@ -407,10 +407,8 @@ class Host(core.Context):
 	# /h_allowed_methods/
 		# Method restrictions for the host. &None if not restricted.
 
-	# /h_mount_point/
-		# The prefix used by the proxy to select the host to connect to.
-		# When present, applications can use this data to properly
-		# generate URLs for redirects.
+	# /h_headers/
+		# Headers added to every response routed to this host.
 
 	# [ Engineering ]
 	# While proper caching should be handled by a proxy, caching of "constants"
@@ -445,7 +443,6 @@ class Host(core.Context):
 	h_names = None
 	h_options = None
 	h_allowed_methods = h_defaults['h_allowed_methods']
-	h_mount_point = None
 	h_redirects = None
 	h_headers = ()
 
