@@ -1,4 +1,3 @@
 """
-# Javascript, server resources, and web embedded Python support.
+# Web server and client framework based on &..kernel.
 """
-__factor_type__ = 'project'
