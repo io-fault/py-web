@@ -446,6 +446,7 @@ class Host(core.Context):
 	h_allowed_methods = h_defaults['h_allowed_methods']
 	h_mount_point = None
 	h_redirects = None
+	h_headers = ()
 
 	def actuate(self):
 		self.provide('host')
@@ -456,6 +457,9 @@ class Host(core.Context):
 
 	def h_disable_options(self, *option_identifiers:str):
 		self.h_options.difference_update(option_identifiers)
+
+	def h_set_headers(self, headers):
+		self.h_headers = headers
 
 	def h_update_names(self, *names):
 		"""
@@ -589,6 +593,7 @@ class Host(core.Context):
 		# Route the request to the identified partition.
 		"""
 
+		ctl.extend_headers(self.h_headers)
 		path = ctl.request.pathstring
 		initial = self.h_root.get(path, None)
 

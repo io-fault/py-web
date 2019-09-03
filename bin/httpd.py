@@ -60,11 +60,51 @@ def parse_arguments(name, args):
 
 	return cmdgroups
 
+def merge(target, source):
+	for x in ('names', 'partitions', 'allowed-methods'):
+		target[x].update(source[x])
+
+	for x in ('headers',):
+		target[x].extend(source[x])
+
+	src = source['redirects']
+	dst = target['redirects']
+	for k, values in src.items():
+		if k not in dst:
+			dst[k] = []
+		dst[k].extend(values)
+
+def rewrite_names(hostname, host):
+	selected = True
+	default = hostname
+	aliases = list(host['names'])
+	host['names'].clear()
+
+	for name in aliases:
+		if name[:1] == '[' and name[-1:] == ']':
+			name = name[1:-1]
+			selected = True
+
+		if name[-1] == '.':
+			name = name[:-1]
+			if name == '*':
+				host['trap'] = name
+				continue
+		else:
+			name = name + '.' + hostname
+
+		host['names'].add(name)
+		if selected:
+			default = name
+			selected = False
+
+	host['subject'] = default
+
 def parse_network_config(string):
 	# http host network
 	cfg = {}
 
-	for hostsection in string.split('\n@'):
+	for hostsection in string.split('\n@'): # Host declaration.
 		if not hostsection or hostsection.lstrip()[:1] == '#':
 			continue
 
@@ -74,57 +114,79 @@ def parse_network_config(string):
 		host = host.strip('@') # Handle initial section case.
 		parts = {}
 		hc = cfg[host] = {
-			'aliases': set(),
+			'names': set(aliases.split()),
+			'allowed-methods': set(),
 			'partitions': parts,
 			'subject': host,
 			'redirects': {},
-			'allowed-methods': None,
+			'headers': [],
 		}
 
-		for name in aliases.split():
-			if name[:1] == '[' and name[-1:] == ']':
-				name = name[1:-1]
-				default = True
-			else:
-				default = False
-
-			if name[-1] == '.':
-				name = name[:-1]
-				if name == '*':
-					cfg['trap'] = host
-					continue
-			else:
-				name = name + '.' + host
-
-			hc['aliases'].add(name)
-			if default:
-				hc['subject'] = name
-
+		symbol = target = mount_point = None
 		for directive in hconfig:
-			if directive.startswith('#'):
+			if directive.lstrip().startswith('#'):
 				continue
 
-			symbol, parameters = directive.strip('\n').split(':', 1) # Clean empty lines.
+			if directive.startswith('\t'):
+				# Indented continuations.
+				if symbol is None:
+					pass
+				if symbol == ':Redirect':
+					hc['redirects'][target] += directive.split()
+				elif symbol == ':Allow':
+					hc['allowed-methods'] += directive.split()
+				elif symbol == ':Partition':
+					part = parts[mount_point]
 
-			if symbol == 'Redirect':
+					n = len(part)
+					if n == 3:
+						# Extend option string.
+
+						v = part[-1]
+						v += '\n'
+						v += directive[1:] # Trim the leading tab.
+
+						parts[mount_point] = part[:3] + (v,)
+					else:
+						parts[mount_point] += tuple(directive.strip().split(None, 2 - n))
+				else:
+					# Extend previously declared header.
+					h, v = hc['headers'][-1]
+					if v:
+						v += b' '
+					v += directive.strip().encode('utf-8')
+					hc['headers'][-1] = (h, v)
+
+				continue
+			else:
+				if directive[:1] == ':':
+					symbol, parameters = directive.strip('\n').split(None, 1)
+				else:
+					symbol, parameters = directive.strip('\n').split(':', 1) # Clean empty lines.
+					hc['headers'].append((
+						symbol.strip().encode('utf-8'),
+						parameters.strip().encode('utf-8')
+					))
+					continue
+
+			# New setting.
+			if symbol == ':Redirect':
 				target, *endpoints = parameters.split()
 				hc['redirects'][target] = endpoints
-			elif symbol == 'Partition':
-				mount_point, module, allocator, *option = parameters.split(None, 3)
+			elif symbol == ':Partition':
+				mount_point, *remainder = parameters.split(None, 3) # Path is required.
 				if mount_point[-1] != '/':
 					mount_point += '/'
 
-				if option:
-					option = option[0]
-				else:
-					option = None
-
-				parts[mount_point] = (module, allocator, option)
-			elif symbol == 'Allow':
+				parts[mount_point] = tuple(remainder)
+			elif symbol == ':Allow':
 				methods = parameters.split()
 				hc['allowed-methods'] = methods
+			elif symbol == ':Inherit':
+				for template_host in parameters.split():
+					merge(hc, cfg[template_host])
 			else:
-				# Warning?
+				# Unknown directive.
 				pass
 
 	return cfg
@@ -190,7 +252,12 @@ def load_partitions(items):
 	prefixes = {}
 
 	for mnt, router in items:
-		module_name, router_name, options = router
+		module_name, router_name, *options = router # Insufficient Partition parameters?
+		if not options:
+			options = None
+		else:
+			options = options[0]
+
 		module = import_module(module_name)
 		prefixes[mnt] = getattr(module, router_name), options
 
@@ -199,7 +266,11 @@ def load_partitions(items):
 def create_host(name, config):
 	parts = load_partitions(config['partitions'].items())
 	h = service.Host(parts)
-	h.h_update_names(name, *config['aliases'])
+
+	rewrite_names(name, config)
+	h.h_update_names(name, *config['names'])
+	if config['headers']:
+		h.h_set_headers(config['headers'])
 
 	if 'allowed-methods' in config:
 		h.h_allowed_methods = frozenset(x.encode('utf-8') for x in config['allowed-methods'])
@@ -219,6 +290,7 @@ def allocate(optdata, kports):
 	hostset = {
 		host: create_host(host, hcfg)
 		for host, hcfg in netcfg.items()
+		if (host[:1] + host[-1:]) != '<>' # Ignore templates.
 	}
 
 	network = service.Network(list(hostset.values()))
