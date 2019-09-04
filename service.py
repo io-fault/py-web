@@ -255,7 +255,7 @@ class Network(core.Context):
 	# interface.
 
 	# [ Properties ]
-	# /http_default/
+	# /http_default_host/
 		# The default HTTP Host; the &Host to select in
 		# cases where no (http/header)`Host` is designated by
 		# a request.

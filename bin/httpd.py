@@ -17,7 +17,7 @@ from ...kernel import dispatch as kdispatch
 from ...sectors import daemon
 from ...context import tools
 
-from .. import service, http
+from .. import service
 
 optmap = {
 	'-L': 'listening-interfaces',

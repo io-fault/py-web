@@ -15,7 +15,7 @@ from ...kernel import dispatch as kdispatch
 
 from ...sectors import daemon
 
-from .. import service, http
+from .. import service
 
 def load_partition(module_name, router_name):
 	from importlib import import_module
