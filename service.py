@@ -270,7 +270,6 @@ class Network(core.Context):
 
 	def net_dispatch(self, host):
 		x = core.Transaction.create(host)
-
 		self.xact_dispatch(x)
 
 		for h_name in host.h_names:
@@ -397,7 +396,7 @@ class Files(Partition):
 	def part_select(self, ctl):
 		ctl.accept(None)
 		rpath = ctl.request.path[self.part_depth:]
-		return self.fs_handler(self.fs_routes, ctl, self.host, self.part_path, rpath)
+		return self.fs_handler(self.host.h_error, self.fs_routes, ctl, self.part_path, rpath)
 
 class Host(core.Context):
 	"""

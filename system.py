@@ -200,7 +200,7 @@ directory_materialization = {
 	media.type_from_bytes(b'text/plain'): materialize_text_index,
 }
 
-def select_filesystem_resource(routes, ctl, host, root, rpath):
+def select_filesystem_resource(error, routes, ctl, root, rpath):
 	"""
 	# Identify a target resource and materialize a response.
 	"""
@@ -208,7 +208,8 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 
 	method = req.method
 	if method not in {'GET', 'HEAD', 'OPTIONS'}:
-		host.h_error(ctl, 405, None)
+		ctl.add_header(b'Allow', b'GET,HEAD,OPTIONS')
+		error(ctl, 405, None)
 		return
 
 	# Resolve relative paths to avoid root escapes.
@@ -230,16 +231,16 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 					break
 			else:
 				# Resource does not exist.
-				host.h_error(ctl, 404, None)
+				error(ctl, 404, None)
 				return
 		else:
 			selection = routes[0]
 			selection_status = os.stat(str(selection))
 	except PermissionError:
-		host.h_error(ctl, 403, None)
+		error(ctl, 403, None)
 		return
 	except FileNotFoundError:
-		host.h_error(ctl, 404, None)
+		error(ctl, 404, None)
 		return
 
 	if method == 'OPTIONS':
@@ -260,7 +261,7 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 			preferred_media_type = mrange.query(*supported_directory_types)
 
 			if preferred_media_type is None:
-				host.h_error(ctl, 406, None)
+				error(ctl, 406, None)
 			else:
 				selected_type = preferred_media_type[0]
 				materialize = directory_materialization[selected_type]
@@ -280,7 +281,7 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 
 		acceptable = mrange.query(media.type_from_string(cotype)) is not None
 		if not acceptable:
-			host.h_error(ctl, 406, None)
+			error(ctl, 406, None)
 			return
 
 		if req.has(b'range'):
@@ -305,7 +306,7 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 
 		if method == 'GET':
 			start, stop = ranges[0]
-			channel = host.system.read_file_range(str(selection), start, stop)
+			channel = ctl.invocations.system.read_file_range(str(selection), start, stop)
 			ctl.set_response(res, descr, rsize, cotype=ct)
 			ctl.http_dispatch_output(channel)
 			channel.f_transfer(None)
@@ -313,8 +314,8 @@ def select_filesystem_resource(routes, ctl, host, root, rpath):
 			ctl.set_response(res, descr, rsize, cotype=ct)
 			ctl.connect(None)
 	except PermissionError:
-		host.h_error(ctl, 403, None)
+		error(ctl, 403, None)
 		return
 	except FileNotFoundError:
-		host.h_error(ctl, 404, None)
+		error(ctl, 404, None)
 		return
