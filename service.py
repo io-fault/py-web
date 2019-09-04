@@ -326,11 +326,19 @@ class Network(core.Context):
 class Partition(core.Context):
 	"""
 	# Base class for host applications.
+
+	# [ Properties ]
+
+	# /part_path/
+		# The absolute (URI) path used to reach the partition.
+		# For application servers, this is normally `'/'`.
+	# /part_argv/
+		# The arguments that were configured with the partition.
 	"""
 
-	def __init__(self, path, option=None):
-		self.part_option = option
+	def __init__(self, path, argv=None):
 		self.part_path = path
+		self.part_argv = (argv or [])
 
 		if path == '/':
 			self.part_depth = 0
@@ -340,16 +348,17 @@ class Partition(core.Context):
 	def structure(self):
 		props = [
 			('part_path', self.part_path),
-			('part_option', self.part_option),
+			('part_argv', self.part_argv),
 		]
 		return (props, None)
 
 	def actuate(self):
-		self.part_dispatched(self.part_option)
+		self.part_dispatched(self.part_argv)
 
 	def part_select(self, ctl):
 		ctl.accept(None)
-		self.host.h_error(ctl, 500, None, description='MISCONFIGURED')
+		ctl.set_response(b'500', b'MISCONFIGURED', 0, cotype=b'text/plain')
+		ctl.connect(None)
 
 	def terminate(self):
 		if not self.functioning:
@@ -371,10 +380,10 @@ class Files(Partition):
 	# Read-only filesystem union for serving local files.
 	"""
 
-	def part_dispatched(self, option):
+	def part_dispatched(self, argv):
 		from ..system import files
 		from . import system
-		self.fs_routes = [files.Path.from_path(x) for x in option.split(':')]
+		self.fs_routes = [files.Path.from_path(x) for x in argv]
 		self.fs_handler = system.select_filesystem_resource
 
 	def part_select(self, ctl):

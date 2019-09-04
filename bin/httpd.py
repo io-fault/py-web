@@ -158,16 +158,14 @@ def parse_network_config(string):
 					part = parts[mount_point]
 
 					n = len(part)
-					if n == 3:
-						# Extend option string.
-
-						v = part[-1]
-						v += '\n'
-						v += directive[1:] # Trim the leading tab.
-
-						parts[mount_point] = part[:3] + (v,)
+					if n > 2:
+						# Extend argument vector.
+						part += directive[1:].strip().split(' ') # Trim the leading tab.
 					else:
-						parts[mount_point] += tuple(directive.strip().split(None, 2 - n))
+						part += directive.strip().split(None, 2 - n)
+						if len(part) > 2:
+							# Initialize the now present argument vector.
+							part[2:] = part[2].rstrip('\n').split(' ')
 				else:
 					# Extend previously declared header.
 					h, v = hc['headers'][-1]
@@ -193,11 +191,14 @@ def parse_network_config(string):
 				target, *endpoints = parameters.split()
 				hc['redirects'][target] = endpoints
 			elif symbol == ':Partition':
-				mount_point, *remainder = parameters.split(None, 3) # Path is required.
+				mount_point, *remainder = parameters.strip().split(None, 3) # Path is required.
 				if mount_point[-1] != '/':
 					mount_point += '/'
 
-				parts[mount_point] = tuple(remainder)
+				if len(remainder) < 3:
+					parts[mount_point] = remainder
+				else:
+					parts[mount_points] = remainder[2:] + remainder[2].rstrip('\n').split(' ')
 			elif symbol == ':Allow':
 				methods = parameters.split()
 				hc['allowed-methods'] = methods
@@ -273,14 +274,9 @@ def load_partitions(items):
 	prefixes = {}
 
 	for mnt, router in items:
-		module_name, router_name, *options = router # Insufficient Partition parameters?
-		if not options:
-			options = None
-		else:
-			options = options[0]
-
+		module_name, router_name, *argv = router # Insufficient Partition parameters?
 		module = import_module(module_name)
-		prefixes[mnt] = getattr(module, router_name), options
+		prefixes[mnt] = getattr(module, router_name), argv
 
 	return prefixes
 
