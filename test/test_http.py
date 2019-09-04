@@ -149,8 +149,7 @@ def test_join(test):
 	allocate_transparent = (lambda x: ((x + (ident(x),)), b'VERSION'))
 	initiate_transparent = (lambda x,y: y)
 
-	c = collections.Counter()
-	j = library.join(shared, initiate_transparent, status=c)
+	j = library.join(shared, initiate_transparent)
 	g = library.fork(shared, allocate_transparent, (lambda: None), overflow.append)
 	g.send(None); j.send(None)
 

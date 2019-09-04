@@ -11,6 +11,7 @@
 import typing
 import collections
 import itertools
+import functools
 
 from ..context import tools
 from ..context.tools import cachedproperty, cachedcalls
@@ -377,22 +378,66 @@ class Structures(object):
 		cxn = self.cache.get(b'connection')
 		return cxn == b'close' or not cxn
 
+def _join_send_content(event, channel_id, transfer_events):
+	assert event == fc_transfer
+	return [(2, x) for x in transfer_events]
+
+def _join_send_chunk(event, channel_id, transfer_events):
+	assert event == fc_transfer
+	return [(3, x) for x in transfer_events]
+
+def _join_send_eom(event, channel_id, terminal, EOM=protocolcore.EOM):
+	assert event == fc_terminate
+	return (EOM,)
+
+def _join_initiate_response(
+		shared, commands, sequence,
+		event, channel_id, init,
+		fc_transfer=flows.fe_transfer,
+	):
+	assert event == fc_initiate
+
+	rline, headers, content_length = sequence(shared['version'], init)
+	if content_length is None:
+		commands[fc_transfer] = _join_send_chunk
+	else:
+		commands[fc_transfer] = _join_send_content
+
+	return [
+		(0, rline),
+		(1, headers),
+		(1, ()),
+	]
+
+def _join_initiate_request(
+		shared, commands, sequence,
+		event, channel_id, init,
+		fc_transfer=flows.fe_transfer,
+	):
+	assert event == fc_initiate
+
+	rline, headers, content_length = sequence(shared['version'], init)
+	if rline[0] == b'HEAD':
+		shared[('response-has-body', channel_id)] = False
+
+	if content_length is None:
+		commands[fc_transfer] = _join_send_chunk
+	else:
+		commands[fc_transfer] = _join_send_content
+
+	return [
+		(0, rline),
+		(1, headers),
+		(1, ()),
+	]
+
 def join(
 		shared,
 		sequence,
-		status=None,
-
-		rline_ev=protocolcore.ev_rline,
-		headers_ev=protocolcore.ev_headers,
-		trailers_ev=protocolcore.ev_trailers,
-		content=protocolcore.ev_content,
-		chunk=protocolcore.ev_chunk,
-		EOH=protocolcore.EOH,
-		EOM=protocolcore.EOM,
-
 		fc_initiate=flows.fe_initiate,
 		fc_terminate=flows.fe_terminate,
 		fc_transfer=flows.fe_transfer,
+		partial=functools.partial,
 	):
 	"""
 	# Join flow events into a proper HTTP stream.
@@ -400,51 +445,40 @@ def join(
 
 	serializer = protocolcore.assembly()
 	serialize = serializer.send
+	commands = {}
 	transfer = ()
 
-	def initiate(event, channel_id, init):
-		assert event == fc_initiate
-		nonlocal commands
+	if shared['disposition'] == 'client':
+		ini = partial(_join_initiate_request, shared, commands, sequence)
+	else:
+		ini = partial(_join_initiate_response, shared, commands, sequence)
 
-		rline, headers, content_length = sequence(shared['version'], init)
-		if content_length is None:
-			commands[fc_transfer] = pchunk
-		else:
-			commands[fc_transfer] = pdata
-
-		return [
-			(rline_ev, rline),
-			(headers_ev, headers),
-			EOH,
-		]
-
-	def eom(event, channel_id, param):
-		assert event == fc_terminate
-		return (EOM,)
-
-	def pdata(event, channel_id, transfer_events):
-		assert event == fc_transfer
-		return [(content, x) for x in transfer_events]
-
-	def pchunk(event, channel_id, transfer_events):
-		assert event == fc_transfer
-		return [(chunk, x) for x in transfer_events]
-
-	commands = {
-		fc_initiate: initiate,
-		fc_terminate: eom,
-		fc_transfer: pchunk,
-	}
+	commands.update({
+		fc_initiate: ini, # Reference Cycle
+		fc_terminate: _join_send_eom,
+		fc_transfer: _join_send_chunk,
+	})
 	transformer = commands.__getitem__
 
-	content_ev = None
-	while True:
-		event = None
-		events = (yield transfer)
-		transfer = []
-		for event in events:
-			out_events = transformer(event[0])(*event)
-			transfer.extend(serialize(out_events))
+	try:
+		while True:
+			events = (yield transfer)
+			transfer = []
+			for event in events:
+				transfer += serialize(
+					transformer(event[0])(*event)
+				)
+	finally:
+		# GeneratorExit
+		commands.clear()
+
+def _fork_response_sync(state):
+	"""
+	# Generator that can be used to communicate whether or not
+	# the response will have a body. Used with client disposition.
+	"""
+	for i in itertools.count(1):
+		yield i, state.pop(('response-has-body', i), True)
 
 def fork(
 		shared, allocate, close, overflow,
@@ -467,7 +501,17 @@ def fork(
 	# Split an HTTP stream into flow events for use by &flows.Division.
 	"""
 
-	tokenizer = protocolcore.disassembly(disposition=shared['disposition'])
+	disposition = shared['disposition']
+
+	if disposition == 'client':
+		rs = _fork_response_sync(shared)
+		tokenizer = protocolcore.disassembly(
+			disposition='client',
+			allocation=rs
+		)
+	else:
+		tokenizer = protocolcore.disassembly()
+
 	tokens = tokenizer.send
 
 	close_state = False # header Connection: close
@@ -614,18 +658,18 @@ class TXProtocol(flows.Protocol):
 
 	def __init__(self, state, initiate):
 		self.p_shared = state
-		self._status = collections.Counter()
-		self._state = join(state, initiate, status=self._status)
-		self._join = self._state.send
-		self._join(None)
-
-	def f_transfer(self, event):
-		self.f_emit(self._join(event))
+		self.p_local = join(state, initiate)
+		self.p_transfer = self.p_local.send
+		self.p_transfer(None)
 
 class RXProtocol(flows.Protocol):
 	"""
 	# Protocol class receiving HTTP messages.
 	"""
+
+	@property
+	def http_version(self):
+		return self.p_shared['version']
 
 	@staticmethod
 	def allocate_client_request(parameter):
@@ -643,10 +687,6 @@ class RXProtocol(flows.Protocol):
 		(version, code, description), headers = parameter
 		return (code, description, headers), version
 
-	@property
-	def http_version(self):
-		return self.p_shared['version']
-
 	def p_close(self):
 		pass
 
@@ -661,13 +701,9 @@ class RXProtocol(flows.Protocol):
 
 	def __init__(self, state, allocate):
 		self.p_shared = state
-		self._status = collections.Counter()
-		self._state = fork(state, allocate, self.p_close, self.p_overflowing) # XXX: weakmethod
-		self._fork = self._state.send
-		self._fork(None)
-
-	def f_transfer(self, event):
-		self.f_emit(self._fork(event))
+		self.p_local = fork(state, allocate, self.p_close, self.p_overflowing) # XXX: weakmethod
+		self.p_transfer = self.p_local.send
+		self.p_transfer(None)
 
 def allocate_client_protocol(version:bytes=b'HTTP/1.1'):
 	state = {
