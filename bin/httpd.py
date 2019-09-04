@@ -27,6 +27,12 @@ optmap = {
 }
 
 def sequence_arguments(igroups, default=None):
+	# igroups contains the option argument associated
+	# with all non-option arguments following the option
+	# This yields out those options associated with the
+	# first argument following the option rather than all of them,
+	# depending on the type of option.
+
 	for group, contents in igroups:
 		if group is None:
 			pass
@@ -89,6 +95,7 @@ def rewrite_names(hostname, host):
 	default = hostname
 	aliases = list(host['names'])
 	host['names'].clear()
+	host['networks'] = set()
 
 	for name in aliases:
 		if name[:1] == '[' and name[-1:] == ']':
@@ -97,16 +104,18 @@ def rewrite_names(hostname, host):
 
 		if name[-1] == '.':
 			name = name[:-1]
-			if name == '*':
-				host['trap'] = name
-				continue
 		else:
 			name = name + '.' + hostname
 
-		host['names'].add(name)
-		if selected:
-			default = name
+		if name[:1] == '*':
+			# Suffix match
 			selected = False
+			host['networks'].add(name[1:])
+		else:
+			host['names'].add(name)
+			if selected:
+				default = name
+				selected = False
 
 	host['subject'] = default
 
@@ -124,7 +133,7 @@ def parse_network_config(string):
 		host = host.strip('@') # Handle initial section case.
 		parts = {}
 		hc = cfg[host] = {
-			'names': set(aliases.split()),
+			'names': set(aliases.split()), # Including suffix matches.
 			'allowed-methods': set(),
 			'partitions': parts,
 			'subject': host,
