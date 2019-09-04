@@ -50,13 +50,21 @@ except ImportError:
 class Download(kcore.Context):
 	dl_monitor = None
 	dl_tls = None
-	dl_transfer_counter = None
 	dl_content_length = None
 	dl_identities = None
 	_dl_xfer = None
+	_dl_last_status = 0
 
 	def __init__(self, endpoints):
 		self.dl_endpoints = endpoints
+
+	def _force_quit(self):
+		print() # Avoid trampling on status.
+		raise Exception("termination")
+
+	def terminate(self):
+		self.start_termination()
+		self.critical(self._force_quit)
 
 	def dl_pprint(self, file, screen, source):
 		rp = screen.terminal_type.normal_render_parameters
@@ -108,9 +116,9 @@ class Download(kcore.Context):
 
 		return req
 
-	def dl_status(self, time=None, next=timetypes.Measure.of(millisecond=500)):
+	def dl_status(self, time=None, next=timetypes.Measure.of(millisecond=200)):
 		window = timetypes.Measure.of(second=8)
-		counter = self.dl_transfer_counter
+		final = '\r'
 
 		if not self.dl_identities:
 			return next
@@ -119,29 +127,45 @@ class Download(kcore.Context):
 		if self.dl_monitor is not None:
 			monitor = self.dl_monitor
 			units, time = monitor.tm_rate(window)
+			total = units + monitor.tm_aggregate[0]
+
+			if monitor.terminated:
+				units += monitor.tm_aggregate[0]
+				time = time.increase(monitor.tm_aggregate[1])
+				final = '\n'
 		else:
+			total = 0
 			units, time = (0, window.__class__(1))
 
-		seconds = time.select('second')
+		try:
+			rate = (units / time) * (1000000000) # ns
+		except ZeroDivisionError:
+			rate = units
 
-		if seconds:
-			rate = (units / time.select('second'))
+		try:
+			if self.dl_content_length is not None:
+				eta = ((self.dl_content_length-total) / rate)
+			else:
+				eta = total / rate
+			m = timetypes.Measure.of(second=int(eta), subsecond=eta-int(eta))
+			m = m.truncate('millisecond')
+			xfer_rate = rate / 1000
+		except ZeroDivisionError:
+			m = 'never'
+			xfer_rate = 0.0
 
-			try:
-				if self.dl_content_length is not None:
-					eta = ((self.dl_content_length-counter[x]) / rate)
-				else:
-					eta = counter[x] / rate
-				m = timetypes.Measure.of(second=int(eta), subsecond=eta-int(eta))
-				m = m.truncate('millisecond')
-				xfer_rate = rate / 1000
-			except ZeroDivisionError:
-				m = 'never'
-				xfer_rate = 0.0
+		last = self._dl_last_status
+		status = ": %s %d bytes @ %f KB/sec [Estimate %r]" %(x, total, xfer_rate, m)
 
-			print("\r%s %d bytes @ %f KB/sec [%r]%s" %(x, counter[x], xfer_rate, m, ' '*40), end='')
+		current = len(status)
+		change = last - current
+		if change > 0:
+			erase = (' ' * change)
 		else:
-			print("\r%s %d bytes%s" %(x, counter[x], ' '*40), end='')
+			erase = ''
+
+		print(status + erase, end=final)
+		self._dl_last_status = current
 
 		return next
 
@@ -226,13 +250,12 @@ class Download(kcore.Context):
 		endpoints = self.dl_endpoints
 
 		self.dl_identities = []
-		self.dl_transfer_counter = collections.Counter()
 
 		# Only load DNS if its needed.
 		lendpoints = []
 		for struct, x in endpoints:
 			if x.protocol == 'internet-names':
-				cname, a = network.select_endpoints(x.address, 'https')
+				cname, a = network.select_endpoints(x.address, struct['scheme'])
 				for ep in a:
 					print('Possible host:', str(ep))
 					lendpoints.append((struct, ep))
@@ -255,7 +278,8 @@ def main(inv:process.Invocation) -> process.Exit:
 	dl = Download(endpoints)
 
 	from ...kernel import system
-	system.dispatch(inv, dl)
+	process = system.dispatch(inv, dl)
+	system.set_root_process(process)
 	system.control()
 
 if __name__ == '__main__':
