@@ -6,7 +6,7 @@ import stat
 import itertools
 import typing
 
-from ..time import types as timetypes
+from ..time.types import from_unix_timestamp as _st_unix
 from ..internet import media
 from ..system.files import Path
 
@@ -31,25 +31,27 @@ def render_xml_directory_listing(xml, dl, fl):
 	for f in fl:
 		t = get_type(f.extension, 'application/octet-stream')
 		try:
-			ct, lm, size = f.meta()
-			lm = lm.select('iso')
-			ct = ct.select('iso')
+			st = os.stat(str(f))
+			size = st.st_size
+			lm = _st_unix(st.st_mtime).select('iso')
+			ct = _st_unix(st.st_ctime).select('iso')
 		except FileNotFoundError:
 			continue
 
 		yield from xml.element('resource', None,
-			('created', ct),
-			('modified', lm),
 			('type', t),
 			('size', str(size)),
+			('created', ct),
+			('modified', lm),
 			identifier=f.identifier,
 		)
 
 	for d in dl:
 		try:
-			ct, lm, size = d.meta()
-			lm = lm.select('iso')
-			ct = ct.select('iso')
+			st = os.stat(str(d))
+			size = st.st_size
+			lm = _st_unix(st.st_mtime).select('iso')
+			ct = _st_unix(st.st_ctime).select('iso')
 		except FileNotFoundError:
 			continue
 
@@ -68,23 +70,25 @@ def render_directory_listing(directories, files):
 	for f in files:
 		t = get_type(f.extension, 'application/octet-stream')
 		try:
-			ct, lm, size = f.meta()
-			lm = lm.select('iso')
-			ct = ct.select('iso')
+			st = os.stat(str(f))
+			size = st.st_size
+			lm = _st_unix(st.st_mtime).select('iso')
+			ct = _st_unix(st.st_ctime).select('iso')
 		except FileNotFoundError:
 			continue
 
-		yield [f.identifier, ct, lm, t, size]
+		yield [f.identifier, t, size, ct, lm,]
 
 	for d in directories:
 		try:
-			ct, lm, size = d.meta()
-			lm = lm.select('iso')
-			ct = ct.select('iso')
+			st = os.stat(str(d))
+			size = st.st_size
+			lm = _st_unix(st.st_mtime).select('iso')
+			ct = _st_unix(st.st_ctime).select('iso')
 		except FileNotFoundError:
 			continue
 
-		yield [d.identifier, ct, lm, None, None]
+		yield [d.identifier, None, None, ct, lm,]
 
 def xml_context_element(xml, hostname, root):
 	yield from xml.element('internet', None,
@@ -183,9 +187,13 @@ def materialize_json_index(ctl, root, rpath, rpoints, routes):
 	return json.dumps(list(records)).encode('utf-8')
 
 def materialize_text_index(ctl, root, rpath, rpoints, routes):
-	records = _render_index(routes, rpath)
+	string = (lambda x: str(x) if x is not None else "-")
+	records = list(_render_index(routes, rpath))
+	records.append(())
+
 	return '\n'.join([
-		'\t'.join(map(str, row)) for row in records
+		'\t'.join(map(string, row))
+		for row in records
 	]).encode('utf-8')
 
 supported_directory_types = (
@@ -208,7 +216,7 @@ def select_filesystem_resource(error, routes, ctl, root, rpath):
 
 	method = req.method
 	if method not in {'GET', 'HEAD', 'OPTIONS'}:
-		ctl.add_header(b'Allow', b'GET,HEAD,OPTIONS')
+		ctl.add_header(b'Allow', b'GET, HEAD, OPTIONS')
 		error(ctl, 405, None)
 		return
 
@@ -297,7 +305,7 @@ def select_filesystem_resource(error, routes, ctl, root, rpath):
 		ranges, rsize = calculate_range(req_ranges, cosize)
 
 		ct = cotype.encode('utf-8')
-		lm = timetypes.from_unix_timestamp(selection_status.st_mtime)
+		lm = _st_unix(selection_status.st_mtime)
 
 		ctl.extend_headers([
 			(b'Last-Modified', lm.select('rfc').encode('utf-8')),
