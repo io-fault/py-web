@@ -355,6 +355,14 @@ class Partition(core.Context):
 	def actuate(self):
 		self.part_dispatched(self.part_argv)
 
+	def part_accept(self, invp, Constructor=Controller.from_accept):
+		"""
+		# Allocate a sequence of controllers and process them using &part_select.
+		"""
+
+		for pair in zip(*invp.inv_accept()):
+			self.part_select(Constructor(invp, pair))
+
 	def part_select(self, ctl):
 		ctl.accept(None)
 		ctl.set_response(b'500', b'MISCONFIGURED', 0, cotype=b'text/plain')
