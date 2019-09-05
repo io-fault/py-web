@@ -90,7 +90,7 @@ class Download(kcore.Context):
 
 		self.executable.exe_status = 0
 		self._r.terminate()
-		self.sector.terminate()
+		self.finish_termination()
 
 	def xact_void(self, final):
 		self.dl_response_collected()
@@ -116,12 +116,13 @@ class Download(kcore.Context):
 
 		return req
 
-	def dl_status(self, time=None, next=timetypes.Measure.of(millisecond=200)):
+	def dl_status(self, time=None, next=timetypes.Measure.of(millisecond=300)):
 		window = timetypes.Measure.of(second=8)
 		final = '\r'
 
 		if not self.dl_identities:
 			return next
+
 		x = self.dl_identities[-1]
 
 		if self.dl_monitor is not None:
@@ -158,6 +159,7 @@ class Download(kcore.Context):
 		status = ": %s %d bytes @ %f KB/sec [Estimate %r]" %(x, total, xfer_rate, m)
 
 		current = len(status)
+		self._dl_last_status = current
 		change = last - current
 		if change > 0:
 			erase = (' ' * change)
@@ -165,8 +167,6 @@ class Download(kcore.Context):
 			erase = ''
 
 		print(status + erase, end=final)
-		self._dl_last_status = current
-
 		return next
 
 	def dl_response_endpoint(self, invp):
