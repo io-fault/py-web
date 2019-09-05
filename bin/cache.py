@@ -42,6 +42,8 @@ from .. import agent
 
 from ...security import kprotocol as ksecurity
 
+redirect_limit = 4
+
 try:
 	security_context = ksecurity.load('client').Context()
 except ImportError:
@@ -56,8 +58,9 @@ class Download(kcore.Context):
 	_dl_xfer = None
 	_dl_last_status = 0
 
-	def __init__(self, endpoints):
+	def __init__(self, depth, endpoints):
 		self.dl_endpoints = endpoints
+		self.dl_depth = depth
 
 	def _force_quit(self):
 		print() # Avoid trampling on status.
@@ -199,14 +202,18 @@ class Download(kcore.Context):
 
 		# Redirect.
 		if status[:1] == b'3':
+			connect_input(None)
 			self.dl_redirected = True
 			uri = rstruct.cache[b'location'].decode('utf-8')
-
 			print("\nRedirected[%s]: %s\n" %(status.decode('utf-8'), uri))
-			connect_input(None)
-			endpoints = [(struct, host.realize(struct)) for struct in map(ri.parse, (uri,))]
-			dl = Download(endpoints)
-			self.executable.exe_enqueue(dl)
+
+			if self.dl_depth >= redirect_limit:
+				print("Redirect limit reached.")
+				self.executable.exe_status = 1
+			else:
+				endpoints = [(struct, host.realize(struct)) for struct in map(ri.parse, (uri,))]
+				dl = Download(self.dl_depth + 1, endpoints)
+				self.executable.exe_enqueue(dl)
 
 			self._r.terminate()
 			self.finish_termination()
@@ -296,7 +303,7 @@ def main(inv:process.Invocation) -> process.Exit:
 	# URL target; endpoint exists on a remote system.
 	endpoints = [(struct, host.realize(struct)) for struct in map(ri.parse, inv.args)]
 
-	dl = Download(endpoints)
+	dl = Download(1, endpoints)
 
 	from ...kernel import system
 	process = system.dispatch(inv, dl)
