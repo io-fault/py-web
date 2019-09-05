@@ -52,6 +52,7 @@ class Download(kcore.Context):
 	dl_tls = None
 	dl_content_length = None
 	dl_identities = None
+	dl_redirected = False
 	_dl_xfer = None
 	_dl_last_status = 0
 
@@ -78,6 +79,9 @@ class Download(kcore.Context):
 		file.buffer.write(b''.join(screen.render(phrase)) + screen.reset_text())
 
 	def dl_response_collected(self):
+		if self.dl_redirected:
+			return
+
 		target_path = self.dl_target_path
 		self.dl_status()
 
@@ -173,10 +177,6 @@ class Download(kcore.Context):
 		(channel_id, parameters, connect_input), = invp.m_correlate() # One response.
 		(code, description, headers) = parameters
 
-		rstruct = http.Structures(headers)
-		self.dl_content_length = rstruct.length
-		path = self.dl_target_path
-
 		if self.dl_tls:
 			tls = self.dl_tls
 			i = tls.status()
@@ -192,7 +192,26 @@ class Download(kcore.Context):
 		else:
 			print('TLS [none: no transport layer security]')
 
+		rstruct = http.Structures(headers)
 		print(rstruct)
+
+		# Redirect.
+		if code[:1] == b'3':
+			self.dl_redirected = True
+			uri = rstruct.cache[b'location'].decode('utf-8')
+
+			print("\nRedirected[%s]: %s\n" %(code.decode('utf-8'), uri))
+			connect_input(None)
+			endpoints = [(struct, host.realize(struct)) for struct in map(ri.parse, (uri,))]
+			dl = Download(endpoints)
+			self.executable.exe_enqueue(dl)
+
+			self._r.terminate()
+			self.finish_termination()
+			return
+
+		self.dl_content_length = rstruct.length
+		path = self.dl_target_path
 
 		self.dl_identities.append(path)
 		self.dl_status()
