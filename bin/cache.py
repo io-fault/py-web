@@ -175,7 +175,7 @@ class Download(kcore.Context):
 
 	def dl_response_endpoint(self, invp):
 		(channel_id, parameters, connect_input), = invp.m_correlate() # One response.
-		(code, description, headers) = parameters
+		(status, phrase, headers) = parameters
 
 		if self.dl_tls:
 			tls = self.dl_tls
@@ -193,14 +193,16 @@ class Download(kcore.Context):
 			print('TLS [none: no transport layer security]')
 
 		rstruct = http.Structures(headers)
-		print(rstruct)
+		pdata, (rx, tx) = (invp.sector.xact_context.tp_get('http'))
+		print(tx.http_version.decode('utf-8'), end='\n\t')
+		print('\n\t'.join(str(rstruct).split('\n')))
 
 		# Redirect.
-		if code[:1] == b'3':
+		if status[:1] == b'3':
 			self.dl_redirected = True
 			uri = rstruct.cache[b'location'].decode('utf-8')
 
-			print("\nRedirected[%s]: %s\n" %(code.decode('utf-8'), uri))
+			print("\nRedirected[%s]: %s\n" %(status.decode('utf-8'), uri))
 			connect_input(None)
 			endpoints = [(struct, host.realize(struct)) for struct in map(ri.parse, (uri,))]
 			dl = Download(endpoints)
