@@ -34,6 +34,7 @@ from ...internet import ri
 from ...internet import host
 
 from ...kernel import core as kcore
+from ...kernel import dispatch as kdispatch
 from ...kernel import flows as kflows
 from ...kernel import io as kio
 
@@ -97,6 +98,7 @@ class Download(kcore.Context):
 
 		self.executable.exe_status = 0
 		self._r.terminate()
+		del self._r
 		self.finish_termination()
 
 	def xact_void(self, final):
@@ -123,7 +125,7 @@ class Download(kcore.Context):
 
 		return req
 
-	def dl_status(self, time=None, next=timetypes.Measure.of(millisecond=300)):
+	def dl_status(self, time=None):
 		window = timetypes.Measure.of(second=8)
 		final = '\r'
 
@@ -156,7 +158,7 @@ class Download(kcore.Context):
 			else:
 				eta = total / rate
 			m = timetypes.Measure.of(second=int(eta), subsecond=eta-int(eta))
-			m = m.truncate('millisecond')
+			m = m.truncate('second')
 			xfer_rate = rate / 1000
 		except ZeroDivisionError:
 			m = 'never'
@@ -295,8 +297,9 @@ class Download(kcore.Context):
 			return
 
 		hc = self.dl_dispatch(*lendpoints[0])
-		self.sector.scheduling()
-		self._r = self.sector.scheduler.recurrence(self.dl_status)
+		freq = timetypes.Measure.of(millisecond=150)
+		self._r = kdispatch.Recurrence(self.dl_status, freq)
+		self.sector.dispatch(self._r)
 
 def main(inv:process.Invocation) -> process.Exit:
 	os.umask(0o137)
