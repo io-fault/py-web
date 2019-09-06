@@ -378,6 +378,10 @@ class Structures(object):
 		cxn = self.cache.get(b'connection')
 		return cxn == b'close' or not cxn
 
+def _join_send_wire(event, channel_id, transfer_events):
+	assert event == fc_transfer
+	return [(-3, transfer_events)]
+
 def _join_send_content(event, channel_id, transfer_events):
 	assert event == fc_transfer
 	return [(2, x) for x in transfer_events]
@@ -397,11 +401,15 @@ def _join_initiate_response(
 	):
 	assert event == fc_initiate
 
-	rline, headers, content_length = sequence(shared['version'], init)
-	if content_length is None:
-		commands[fc_transfer] = _join_send_chunk
+	if init is None:
+		commands[fc_transfer] = _join_send_wire
+		return ()
 	else:
-		commands[fc_transfer] = _join_send_content
+		rline, headers, content_length = sequence(shared['version'], init)
+		if content_length is None:
+			commands[fc_transfer] = _join_send_chunk
+		else:
+			commands[fc_transfer] = _join_send_content
 
 	return [
 		(0, rline),
@@ -416,14 +424,18 @@ def _join_initiate_request(
 	):
 	assert event == fc_initiate
 
-	rline, headers, content_length = sequence(shared['version'], init)
-	if rline[0] == b'HEAD':
-		shared[('response-has-body', channel_id)] = False
-
-	if content_length is None:
-		commands[fc_transfer] = _join_send_chunk
+	if init is None:
+		commands[fc_transfer] = _join_send_wire
+		return ()
 	else:
-		commands[fc_transfer] = _join_send_content
+		rline, headers, content_length = sequence(shared['version'], init)
+		if rline[0] == b'HEAD':
+			shared[('response-has-body', channel_id)] = False
+
+		if content_length is None:
+			commands[fc_transfer] = _join_send_chunk
+		else:
+			commands[fc_transfer] = _join_send_content
 
 	return [
 		(0, rline),
