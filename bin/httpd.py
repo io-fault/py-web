@@ -21,7 +21,6 @@ from .. import service
 
 optmap = {
 	'-L': 'listening-interfaces',
-	'-N': 'host-networks',
 	'-P': 'concurrency',
 	'-t': 'trap',
 }
@@ -349,6 +348,7 @@ def integrate(name, args):
 
 def main(inv:process.Invocation) -> process.Exit:
 	optdata, arguments = integrate(inv.parameters['system']['name'], inv.args)
+	optdata['host-networks'] = arguments
 
 	ifcfg = {}
 	lset = set()
