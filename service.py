@@ -286,7 +286,7 @@ class Network(core.Context):
 
 		select = self.net_select_host
 
-		first, *remainder = zip(*invp.inv_accept())
+		first, *remainder = zip(*invp.i_accept())
 
 		# Recognize host from first request.
 		first = Constructor(invp, first)
@@ -359,7 +359,7 @@ class Partition(core.Context):
 		# Allocate a sequence of controllers and process them using &part_select.
 		"""
 
-		for pair in zip(*invp.inv_accept()):
+		for pair in zip(*invp.i_accept()):
 			self.part_select(Constructor(invp, pair))
 
 	def part_select(self, ctl):
@@ -634,7 +634,7 @@ class Host(core.Context):
 		# Allocate a sequence of controllers and process them using &h_route.
 		"""
 
-		for pair in zip(*invp.inv_accept()):
+		for pair in zip(*invp.i_accept()):
 			self._h_router(Constructor(invp, pair))
 
 	def terminate(self):

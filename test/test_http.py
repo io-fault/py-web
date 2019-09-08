@@ -199,7 +199,7 @@ def test_TXProtocol_initiate_request(test):
 		'disposition': 'client',
 	}
 	l = []
-	add = (lambda x: l.extend(x.m_correlate()))
+	add = (lambda x: l.extend(x.i_correlate()))
 	ctx, S = testlib.sector()
 
 	end = flows.Collection.list()
@@ -217,7 +217,7 @@ def test_TXProtocol_initiate_request(test):
 	ctx(1)
 
 	inv = (b'GET', b'/test', [], None)
-	(channel_id, connect), = c.m_allocate()
+	(channel_id, connect), = c.i_allocate()
 	connect(inv, None)
 	ctx(2)
 	test/end.c_storage[0][0] == (b"GET /test HTTP/1.1" + b"\r\n"*3)
@@ -231,7 +231,7 @@ def test_RXProtocol_allocate_request(test):
 		'disposition': 'client',
 	}
 	l = []
-	add = (lambda x: l.extend(x.m_correlate()))
+	add = (lambda x: l.extend(x.i_correlate()))
 	ctx, S = testlib.sector()
 
 	end = flows.Collection.list()
@@ -257,7 +257,7 @@ def test_client_transport(test):
 	# - &library.TXProtocol
 	"""
 	l = []
-	add = (lambda x: l.extend(x.m_correlate()))
+	add = (lambda x: l.extend(x.i_correlate()))
 
 	ctx, S = testlib.sector()
 	end = flows.Collection.list()
@@ -271,7 +271,7 @@ def test_client_transport(test):
 	m = t.tp_connect(add, library.allocate_client_protocol())
 	ctx(1)
 	inv = (b'GET', b'/test', [], None)
-	(channel_id, connect), = m.m_allocate()
+	(channel_id, connect), = m.i_allocate()
 	connect(inv, None)
 	ctx(1)
 	test/end.c_storage[0][0] == (b"GET /test HTTP/1.1" + b"\r\n"*3)
@@ -302,7 +302,7 @@ def test_server_transport(test):
 	# - &library.TXProtocol
 	"""
 	l = []
-	add = (lambda x: l.extend(x.inv_accept()))
+	add = (lambda x: l.extend(x.i_accept()))
 
 	ctx, S = testlib.sector()
 	end = flows.Collection.list()

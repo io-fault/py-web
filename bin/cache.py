@@ -175,7 +175,7 @@ class Download(kcore.Context):
 		return next
 
 	def dl_response_endpoint(self, invp):
-		(channel_id, parameters, connect_input), = invp.m_correlate() # One response.
+		(channel_id, parameters, connect_input), = invp.i_correlate() # One response.
 		(status, phrase, headers) = parameters
 
 		if self.dl_tls:
@@ -267,7 +267,7 @@ class Download(kcore.Context):
 
 		inv = tp.tp_connect(self.dl_response_endpoint, http.allocate_client_protocol())
 
-		(channel_id, aconnect), = inv.m_allocate()
+		(channel_id, aconnect), = inv.i_allocate()
 		rp = req.parameters['request']
 		iparam = (rp['method'], rp['path'], rp['headers'], None)
 		aconnect(iparam, None)
