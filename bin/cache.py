@@ -9,14 +9,10 @@
 # is to provide a robust HTTP client for retrieving resources and storing them in
 # the local file system.
 
-# /Redirect Resolution/
-	# Location and HTML redirects are not supported.
 # /Host Scanning in case of 404/
 	# 404 errors do not cause the client to check the other hosts.
 # /Parallel Downloads/
 	# Only one transfer per-process is supported.
-# /Security Certificate Validation/
-	# No checks are performed to validate certificate chains.
 """
 
 import sys
@@ -31,7 +27,6 @@ from ...system import network
 
 from ...time import types as timetypes
 from ...internet import ri
-from ...internet import host
 
 from ...kernel import core as kcore
 from ...kernel import dispatch as kdispatch
@@ -59,9 +54,10 @@ class Download(kcore.Context):
 	_dl_xfer = None
 	_dl_last_status = 0
 
-	def __init__(self, depth, endpoints):
-		self.dl_endpoints = endpoints
+	def __init__(self, depth, endpoint):
+		self.dl_endpoint = endpoint
 		self.dl_depth = depth
+		self.dl_identities = []
 
 	def _force_quit(self):
 		print() # Avoid trampling on status.
@@ -213,8 +209,7 @@ class Download(kcore.Context):
 				print("Redirect limit reached.")
 				self.executable.exe_status = 1
 			else:
-				endpoints = [(struct, host.realize(struct)) for struct in map(ri.parse, (uri,))]
-				dl = Download(self.dl_depth + 1, endpoints)
+				dl = Download(self.dl_depth + 1, ri.parse(uri))
 				self.executable.exe_enqueue(dl)
 
 			self._r.terminate()
@@ -241,8 +236,11 @@ class Download(kcore.Context):
 
 		from ...terminal.format.url import f_struct
 		from ...terminal import matrix
-
 		screen = matrix.Screen()
+
+		if 'port' in struct:
+			endpoint = endpoint.replace(port=int(struct['port']))
+
 		struct['fragment'] = '[%s]' %(str(endpoint.address),)
 		struct['port'] = str(int(endpoint.port))
 		self.dl_pprint(sys.stderr, screen, f_struct(struct))
@@ -277,20 +275,14 @@ class Download(kcore.Context):
 		self.critical(tp.io_transmit_close)
 
 	def actuate(self):
-		endpoints = self.dl_endpoints
-
-		self.dl_identities = []
-
-		# Only load DNS if its needed.
 		lendpoints = []
-		for struct, x in endpoints:
-			if x.protocol == 'internet-names':
-				cname, a = network.select_endpoints(x.address, struct['scheme'])
-				for ep in a:
-					print('Possible host:', str(ep))
-					lendpoints.append((struct, ep))
-			else:
-				lendpoints.append((struct, x))
+
+		struct = self.dl_endpoint
+		host = struct['host'].strip('[').strip(']')
+		cname, a = network.select_endpoints(host, struct['scheme'])
+		for ep in a:
+			print('Possible host:', str(ep))
+			lendpoints.append((struct, ep))
 
 		if not lendpoints:
 			self.terminate()
@@ -303,10 +295,9 @@ class Download(kcore.Context):
 
 def main(inv:process.Invocation) -> process.Exit:
 	os.umask(0o137)
-	# URL target; endpoint exists on a remote system.
-	endpoints = [(struct, host.realize(struct)) for struct in map(ri.parse, inv.args)]
 
-	dl = Download(1, endpoints)
+	iri, = inv.argv # One http endpoint.
+	dl = Download(1, ri.parse(iri))
 
 	from ...kernel import system
 	process = system.dispatch(inv, dl)
