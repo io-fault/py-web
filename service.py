@@ -35,6 +35,10 @@ class Controller(object):
 	# Request execution controller for HTTP services.
 	"""
 
+	@property
+	def transport(self) -> io.Transport:
+		return self.invocations.sector.xact_context
+
 	@classmethod
 	def from_accept(Class, invp, pair):
 		connect_out, (channel_id, parameters, connect_input) = pair
@@ -51,10 +55,6 @@ class Controller(object):
 		self._connect_output = connect_output
 		self._connect_input = connect_input
 		self._request_channel_id = channel_id
-
-	@property
-	def transport(self) -> io.Transport:
-		return self.invocations.sector.xact_context
 
 	def add_header(self, key:bytes, value:bytes):
 		"""
@@ -82,9 +82,12 @@ class Controller(object):
 		# If &cotype is not &None and &length is an integer, (http/header)`Content-Length`
 		# will be provided.
 		"""
+
 		self._response = (code, descr, self.response_headers, length)
 		if cotype is not None:
 			self._http_content_headers(cotype, length)
+
+		return self
 
 	def connect(self, channel):
 		"""
@@ -239,13 +242,26 @@ class Controller(object):
 		# Service creation.
 		reader = io.Transfer()
 		rx = core.Transaction.create(reader)
-		storage = flows.Collection.list()
+		storage = flows.Collection.extended_list()
 		recv = flows.Receiver(self.accept)
 
 		cb = functools.partial(callback, self, storage.c_storage, *args)
 
 		self.xact_dispatch(rx)
 		reader.io_flow([recv, storage], completion=cb)
+		recv.f_transfer(None) # connect_input
+
+	def http_ignore_input(self):
+		"""
+		# Connect the given input to a transfer that discards events.
+		"""
+
+		reader = io.Transfer()
+		rx = core.Transaction.create(reader)
+		recv = flows.Receiver(self.accept)
+
+		self.xact_dispatch(rx)
+		reader.io_flow([recv])
 		recv.f_transfer(None) # connect_input
 
 class Network(core.Context):
