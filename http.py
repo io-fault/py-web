@@ -125,6 +125,13 @@ class Structures(object):
 
 		return self
 
+	@property
+	def redirected(self) -> bool:
+		"""
+		# Whether the response is a redirect.
+		"""
+		return 300 <= self.status < 400
+
 	@cachedproperty
 	def cache(self):
 		self._init_headers(self.headers)
