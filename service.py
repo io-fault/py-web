@@ -56,19 +56,19 @@ class Controller(object):
 		self._connect_input = connect_input
 		self._request_channel_id = channel_id
 
-	def add_header(self, key:bytes, value:bytes):
+	def add_header(self, key:bytes, value:bytes) -> None:
 		"""
 		# Append a single header to the header sequence that will be supplied by the response.
 		"""
 		self.response_headers.append((key, value))
 
-	def extend_headers(self, pairs:http.HeaderSequence):
+	def extend_headers(self, pairs:http.HeaderSequence) -> None:
 		"""
 		# Add a sequence of headers.
 		"""
 		self.response_headers.extend(pairs)
 
-	def set_response(self, code:bytes, descr:bytes, length:int, cotype:bytes=None) -> None:
+	def set_response(self, code:bytes, descr:bytes, length:int, cotype:bytes=None):
 		"""
 		# Assign the status of the response and designate the transfer encoding.
 		# Excepting &length, all parameters *must* be &bytes instances;
@@ -89,7 +89,7 @@ class Controller(object):
 
 		return self
 
-	def connect(self, channel):
+	def connect(self, channel) -> None:
 		"""
 		# Initiate the response causing headers to be sent and connect the &channel as the
 		# HTTP response entity body. If &channel is &None, no entity body will be supplied.

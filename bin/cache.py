@@ -175,8 +175,8 @@ class Download(kcore.Context):
 		return next
 
 	def dl_response_endpoint(self, invp):
-		(channel_id, parameters, connect_input), = invp.i_correlate() # One response.
-		(status, phrase, headers) = parameters
+		self.dl_controller._correlation(*list(invp.i_correlate())[0])
+		ctl = self.dl_controller
 
 		if self.dl_tls:
 			tls = self.dl_tls
@@ -193,17 +193,17 @@ class Download(kcore.Context):
 		else:
 			print('TLS [none: no transport layer security]')
 
-		rstruct = http.Structures(headers)
+		rstruct = ctl.response
 		pdata, (rx, tx) = (invp.sector.xact_context.tp_get('http'))
 		print(tx.http_version.decode('utf-8'), end='\n\t')
 		print('\n\t'.join(str(rstruct).split('\n')))
 
 		# Redirect.
-		if status[:1] == b'3':
-			connect_input(None)
+		if rstruct.redirected:
+			ctl.accept(None)
 			self.dl_redirected = True
 			uri = rstruct.cache[b'location'].decode('utf-8')
-			print("\nRedirected[%s]: %s\n" %(status.decode('utf-8'), uri))
+			print("\nRedirected[%d]: %s\n" %(ctl.response.status, uri))
 
 			if self.dl_depth >= redirect_limit:
 				print("Redirect limit reached.")
@@ -221,15 +221,7 @@ class Download(kcore.Context):
 
 		self.dl_identities.append(path)
 		self.dl_status()
-
-		target = invp.system.append_file(str(path))
-
-		xact = kcore.Transaction.create(kio.Transfer())
-		self.xact_dispatch(xact)
-		routput = kflows.Receiver(connect_input)
-		self.dl_monitor = xact.xact_context.io_flow([routput, target], Terminal=kio.flows.Monitor)
-		self._dl_xfer = xact
-		xact.xact_context.io_execute()
+		self.dl_monitor = ctl.http_read_input_into_file(str(path), Terminal=kio.flows.Monitor)
 
 	def dl_dispatch(self, struct, endpoint):
 		req = self.dl_request(struct)
@@ -266,11 +258,13 @@ class Download(kcore.Context):
 		self.xact_dispatch(xact)
 
 		inv = tp.tp_connect(self.dl_response_endpoint, http.allocate_client_protocol())
+		ctl = agent.Controller(inv, *list(inv.i_allocate())[0])
 
-		(channel_id, aconnect), = inv.i_allocate()
 		rp = req.parameters['request']
-		iparam = (rp['method'], rp['path'], rp['headers'], None)
-		aconnect(iparam, None)
+		ctl.extend_headers(rp['headers'])
+		ctl.set_request(rp['method'], rp['path'], None, final=True)
+		ctl.connect(None)
+		self.dl_controller = ctl
 		tp.io_execute()
 		self.critical(tp.io_transmit_close)
 
