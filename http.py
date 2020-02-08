@@ -386,19 +386,19 @@ class Structures(object):
 		return cxn == b'close' or not cxn
 
 def _join_send_wire(event, channel_id, transfer_events):
-	assert event == fc_transfer
+	assert event == flows.fe_transfer
 	return [(-3, transfer_events)]
 
 def _join_send_content(event, channel_id, transfer_events):
-	assert event == fc_transfer
+	assert event == flows.fe_transfer
 	return [(2, x) for x in transfer_events]
 
 def _join_send_chunk(event, channel_id, transfer_events):
-	assert event == fc_transfer
+	assert event == flows.fe_transfer
 	return [(3, x) for x in transfer_events]
 
 def _join_send_eom(event, channel_id, terminal, EOM=protocolcore.EOM):
-	assert event == fc_terminate
+	assert event == flows.fe_terminate
 	return (EOM,)
 
 def _join_initiate_response(
@@ -406,7 +406,7 @@ def _join_initiate_response(
 		event, channel_id, init,
 		fc_transfer=flows.fe_transfer,
 	):
-	assert event == fc_initiate
+	assert event == flows.fe_initiate
 
 	if init is None:
 		commands[fc_transfer] = _join_send_wire
@@ -429,7 +429,7 @@ def _join_initiate_request(
 		event, channel_id, init,
 		fc_transfer=flows.fe_transfer,
 	):
-	assert event == fc_initiate
+	assert event == flows.fe_initiate
 
 	if init is None:
 		commands[fc_transfer] = _join_send_wire
