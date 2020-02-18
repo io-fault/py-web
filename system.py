@@ -109,7 +109,7 @@ def _render_index_xml(xml, routes, rpath):
 		covered.update(x.identifier for x in fl)
 
 		try:
-			dl, fl = x.extend(rpath).subnodes()
+			dl, fl = (x + rpath).subnodes()
 		except PermissionError:
 			# Ignore directories that can't be read.
 			continue
@@ -167,7 +167,7 @@ def _render_index(routes, rpath):
 		covered.update(x.identifier for x in fl)
 
 		try:
-			dl, fl = r.extend(rpath).subnodes()
+			dl, fl = (r + rpath).subnodes()
 		except PermissionError:
 			# Ignore directories that can't be read.
 			continue
@@ -232,7 +232,7 @@ def select_filesystem_resource(error, routes, ctl, root, rpath):
 			for route in routes:
 				if (route/rpath[0]).exists():
 					# first prefix match wins.
-					selection = route.extend(rpath)
+					selection = (route + rpath)
 					routes = [route]
 
 					selection_status = os.stat(str(selection))
@@ -263,7 +263,7 @@ def select_filesystem_resource(error, routes, ctl, root, rpath):
 			return
 		elif (selection/'.index').exists():
 			# Index override.
-			selection = selection.extend(('.index', 'default.html'))
+			selection += ['.index', 'default.html']
 			selection_status = os.stat(str(selection))
 		else:
 			preferred_media_type = mrange.query(*supported_directory_types)
