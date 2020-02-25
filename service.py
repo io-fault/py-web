@@ -204,12 +204,12 @@ class Controller(object):
 			# The content type to designate in the response.
 		"""
 
-		times, size = route.meta()
-		lm = times[1].select('rfc').encode('utf-8')
+		st = route.fs_status()
+		lm = st.last_modified.select('rfc').encode('utf-8')
 		segments = memory.Segments.open(str(route))
 
 		self.add_header(b'Last-Modified', lm)
-		self.set_response(b'200', b'OK', size, cotype=cotype)
+		self.set_response(b'200', b'OK', st.size, cotype=cotype)
 
 		self.http_iterate_output((x,) for x in segments)
 
@@ -225,11 +225,11 @@ class Controller(object):
 			# The content type to designate in the response.
 		"""
 
-		times, size = route.meta()
-		lm = times[1].select('rfc').encode('utf-8')
+		st = route.fs_status()
+		lm = st.last_modified.select('rfc').encode('utf-8')
 
 		self.add_header(b'Last-Modified', lm)
-		self.set_response(b'200', b'OK', size, cotype=cotype)
+		self.set_response(b'200', b'OK', st.size, cotype=cotype)
 
 		self.connect(None)
 

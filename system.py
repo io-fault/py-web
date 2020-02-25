@@ -1,12 +1,9 @@
 """
 # System interfaces supporting web services.
 """
-import os
-import stat
 import itertools
 import typing
 
-from ..time.types import from_unix_timestamp as _st_unix
 from ..internet import media
 from ..system.files import Path
 
@@ -31,33 +28,29 @@ def render_xml_directory_listing(xml, dl, fl):
 	for f in fl:
 		t = get_type(f.extension, 'application/octet-stream')
 		try:
-			st = os.stat(str(f))
-			size = st.st_size
-			lm = _st_unix(st.st_mtime).select('iso')
-			ct = _st_unix(st.st_ctime).select('iso')
+			st = f.fs_status()
+			ct = st.created
 		except FileNotFoundError:
 			continue
 
 		yield from xml.element('resource', None,
 			('type', t),
-			('size', str(size)),
-			('created', ct),
-			('modified', lm),
+			('size', str(st.size)),
+			('created', ct.select('iso') if ct is not None else None),
+			('modified', st.last_modified.select('iso')),
 			identifier=f.identifier,
 		)
 
 	for d in dl:
 		try:
-			st = os.stat(str(d))
-			size = st.st_size
-			lm = _st_unix(st.st_mtime).select('iso')
-			ct = _st_unix(st.st_ctime).select('iso')
+			st = d.fs_status()
+			ct = st.created
 		except FileNotFoundError:
 			continue
 
 		yield from xml.element('directory', None,
-			('created', ct),
-			('modified', lm),
+			('created', ct.select('iso') if ct is not None else None),
+			('modified', st.last_modified.select('iso')),
 			identifier=d.identifier,
 		)
 
@@ -70,25 +63,19 @@ def render_directory_listing(directories, files):
 	for f in files:
 		t = get_type(f.extension, 'application/octet-stream')
 		try:
-			st = os.stat(str(f))
-			size = st.st_size
-			lm = _st_unix(st.st_mtime).select('iso')
-			ct = _st_unix(st.st_ctime).select('iso')
+			st = f.fs_status()
 		except FileNotFoundError:
 			continue
 
-		yield [f.identifier, t, size, ct, lm,]
+		yield [f.identifier, t, st.size, st.created, st.last_modified,]
 
 	for d in directories:
 		try:
-			st = os.stat(str(d))
-			size = st.st_size
-			lm = _st_unix(st.st_mtime).select('iso')
-			ct = _st_unix(st.st_ctime).select('iso')
+			st = f.fs_status()
 		except FileNotFoundError:
 			continue
 
-		yield [d.identifier, None, None, ct, lm,]
+		yield [d.identifier, None, None, st.created, st.last_modified,]
 
 def xml_context_element(xml, hostname, root):
 	yield from xml.element('internet', None,
@@ -109,7 +96,7 @@ def _render_index_xml(xml, routes, rpath):
 		covered.update(x.identifier for x in fl)
 
 		try:
-			dl, fl = (x + rpath).subnodes()
+			dl, fl = (x + rpath).fs_list()
 		except PermissionError:
 			# Ignore directories that can't be read.
 			continue
@@ -167,7 +154,7 @@ def _render_index(routes, rpath):
 		covered.update(x.identifier for x in fl)
 
 		try:
-			dl, fl = (r + rpath).subnodes()
+			dl, fl = (r + rpath).fs_list()
 		except PermissionError:
 			# Ignore directories that can't be read.
 			continue
@@ -230,12 +217,12 @@ def select_filesystem_resource(error, routes, ctl, root, rpath):
 	try:
 		if rpoints:
 			for route in routes:
-				if (route/rpath[0]).exists():
+				if (route/rpath[0]).fs_type() != 'void':
 					# first prefix match wins.
 					selection = (route + rpath)
 					routes = [route]
 
-					selection_status = os.stat(str(selection))
+					selection_status = selection.fs_status()
 					break
 			else:
 				# Resource does not exist.
@@ -243,7 +230,7 @@ def select_filesystem_resource(error, routes, ctl, root, rpath):
 				return
 		else:
 			selection = routes[0]
-			selection_status = os.stat(str(selection))
+			selection_status = selection.fs_status()
 	except PermissionError:
 		error(ctl, 403, None)
 		return
@@ -257,14 +244,14 @@ def select_filesystem_resource(error, routes, ctl, root, rpath):
 		ctl.connect(None)
 		return
 
-	if (selection_status.st_mode & stat.S_IFDIR) or not rpoints:
+	if selection_status.searchable or not rpoints:
 		if req.pathstring[-1:] != '/':
 			ctl.http_redirect('http://' + req.host + req.pathstring+'/')
 			return
-		elif (selection/'.index').exists():
+		elif (selection/'.index').fs_type() != 'void':
 			# Index override.
 			selection += ['.index', 'default.html']
-			selection_status = os.stat(str(selection))
+			selection_status = selection.fs_status()
 		else:
 			preferred_media_type = mrange.query(*supported_directory_types)
 
@@ -284,7 +271,7 @@ def select_filesystem_resource(error, routes, ctl, root, rpath):
 			return
 
 	try:
-		cosize = selection_status.st_size
+		cosize = selection_status.size
 		cotype = media.types.get(selection.extension, 'application/octet-stream')
 
 		acceptable = mrange.query(media.type_from_string(cotype)) is not None
@@ -305,7 +292,7 @@ def select_filesystem_resource(error, routes, ctl, root, rpath):
 		ranges, rsize = calculate_range(req_ranges, cosize)
 
 		ct = cotype.encode('utf-8')
-		lm = _st_unix(selection_status.st_mtime)
+		lm = selection_status.last_modified
 
 		ctl.extend_headers([
 			(b'Last-Modified', lm.select('rfc').encode('utf-8')),

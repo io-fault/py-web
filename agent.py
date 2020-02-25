@@ -7,6 +7,10 @@
 # Agents are fairly complicated with respect to preferences. The current
 # implementation presumes HTTP/1.1 in most cases where a protocol priority should
 # be used to select a desired wire protocol.
+
+# &Navigation and &Session are essentially unimplemented. Finding a generic structure
+# that fits all use cases is unlikely; however, the direction of a traditional user agent
+# model should be sufficient in most cases.
 """
 import typing
 import weakref
