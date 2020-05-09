@@ -288,6 +288,7 @@ class Download(kcore.Context):
 		self.sector.dispatch(self._r)
 
 def main(inv:process.Invocation) -> process.Exit:
+	ri.strict()
 	os.umask(0o137)
 
 	iri, = inv.argv # One http endpoint.
