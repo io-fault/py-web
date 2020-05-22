@@ -3,20 +3,15 @@
 		&<http://if.fault.io/project/information>
 
 /identifier/
-	`http://fault.io/python/web`
+	&<http://fault.io/python/web>
+/icon/
+	- `🕸`
 /name/
 	`web`
 /abstract/
 	Web interaction tools
-/icon/
-	- `🕸`
 
-/versioning/
-	continuous
-/status/
-	volatile
-
-/controller/
+/authority/
 	`fault.io`
 /contact/
-	`http://fault.io/critical`
+	&<http://fault.io/critical>
