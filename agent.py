@@ -64,19 +64,21 @@ class Controller(object):
 		self._response_channel_id = channel_id
 		self.response = http.Structures(parameters[2]).set_status(*parameters[:2])
 
-	def add_header(self, key:bytes, value:bytes):
+	def http_add_header(self, key:bytes, value:bytes):
 		"""
 		# Append a single header to the header sequence that will be supplied by the response.
 		"""
 		self.request_headers.append((key, value))
+	add_header = http_add_header
 
-	def extend_headers(self, pairs:http.HeaderSequence):
+	def http_extend_headers(self, pairs:http.HeaderSequence):
 		"""
 		# Add a sequence of headers.
 		"""
 		self.request_headers.extend(pairs)
+	extend_headers = http_extend_headers
 
-	def set_request(self, method:bytes, uri:bytes, length:int, cotype:bytes=None, final=False):
+	def http_set_request(self, method:bytes, uri:bytes, length:int, cotype:bytes=None, final=False):
 		"""
 		# Assign the method and URI of the request and designate the transfer encoding.
 		# Excepting &length, all parameters *must* be &bytes instances.
@@ -101,6 +103,7 @@ class Controller(object):
 		self._request = (method, uri, self.request_headers, length)
 
 		return self
+	set_request = http_set_request
 
 	def connect(self, channel):
 		"""
