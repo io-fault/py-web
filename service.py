@@ -56,39 +56,6 @@ class Controller(object):
 		self._connect_input = connect_input
 		self._request_channel_id = channel_id
 
-	def add_header(self, key:bytes, value:bytes) -> None:
-		"""
-		# Append a single header to the header sequence that will be supplied by the response.
-		"""
-		self.response_headers.append((key, value))
-
-	def extend_headers(self, pairs:http.HeaderSequence) -> None:
-		"""
-		# Add a sequence of headers.
-		"""
-		self.response_headers.extend(pairs)
-
-	def set_response(self, code:bytes, descr:bytes, length:int, cotype:bytes=None):
-		"""
-		# Assign the status of the response and designate the transfer encoding.
-		# Excepting &length, all parameters *must* be &bytes instances;
-		# this is intended to emphasize that the fields are being directly inserted
-		# into the wire.
-
-		# If &cotype is &None, neither (http/header)`Content-Length` nor
-		# (http/header)`Transfer-Encoding` will be appended to the headers.
-
-		# If &cotype is not &None and &length is &None, chunked transfer encoding will be used.
-		# If &cotype is not &None and &length is an integer, (http/header)`Content-Length`
-		# will be provided.
-		"""
-
-		self._response = (code, descr, self.response_headers, length)
-		if cotype is not None:
-			self._http_content_headers(cotype, length)
-
-		return self
-
 	def connect(self, channel) -> None:
 		"""
 		# Initiate the response causing headers to be sent and connect the &channel as the
@@ -109,6 +76,42 @@ class Controller(object):
 		# If &channel is &None, any entity body sent will trigger a fault.
 		"""
 		return self._connect_input(channel)
+
+	def http_add_header(self, key:bytes, value:bytes) -> None:
+		"""
+		# Append a single header to the header sequence that will be supplied by the response.
+		"""
+		self.response_headers.append((key, value))
+	add_header = http_add_header
+
+	def http_extend_headers(self, pairs:http.HeaderSequence) -> None:
+		"""
+		# Add a sequence of headers.
+		"""
+		self.response_headers.extend(pairs)
+	extend_headers = http_extend_headers
+
+	def http_set_response(self, code:bytes, descr:bytes, length:int, cotype:bytes=None):
+		"""
+		# Assign the status of the response and designate the transfer encoding.
+		# Excepting &length, all parameters *must* be &bytes instances;
+		# this is intended to emphasize that the fields are being directly inserted
+		# into the wire.
+
+		# If &cotype is &None, neither (http/header)`Content-Length` nor
+		# (http/header)`Transfer-Encoding` will be appended to the headers.
+
+		# If &cotype is not &None and &length is &None, chunked transfer encoding will be used.
+		# If &cotype is not &None and &length is an integer, (http/header)`Content-Length`
+		# will be provided.
+		"""
+
+		self._response = (code, descr, self.response_headers, length)
+		if cotype is not None:
+			self._http_content_headers(cotype, length)
+
+		return self
+	set_response = http_set_response
 
 	def http_continue(self, headers):
 		"""
