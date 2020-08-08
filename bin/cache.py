@@ -261,8 +261,8 @@ class Download(kcore.Context):
 		ctl = agent.Controller(inv, *list(inv.i_allocate())[0])
 
 		rp = req.parameters['request']
-		ctl.extend_headers(rp['headers'])
-		ctl.set_request(rp['method'], rp['path'], None, final=True)
+		ctl.http_extend_headers(rp['headers'])
+		ctl.http_set_request(rp['method'], rp['path'], None, final=True)
 		ctl.connect(None)
 		self.dl_controller = ctl
 		tp.io_execute()

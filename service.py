@@ -130,8 +130,8 @@ class Controller(object):
 		"""
 		# Location header redirect using a 301-MOVED PERMANENTLY response.
 		"""
-		self.add_header(b'Location', location.encode('utf-8'))
-		self.set_response(b'301', b'MOVED PERMANENTLY', 0, cotype=b'text/plain')
+		self.http_add_header(b'Location', location.encode('utf-8'))
+		self.http_set_response(b'301', b'MOVED PERMANENTLY', 0, cotype=b'text/plain')
 		self.connect(None)
 
 	def _http_content_headers(self, cotype:bytes, length:int):
@@ -181,7 +181,7 @@ class Controller(object):
 		# this method.
 		"""
 
-		self.set_response(b'200', b'OK', len(data), cotype=cotype.encode('ascii'))
+		self.http_set_response(b'200', b'OK', len(data), cotype=cotype.encode('ascii'))
 		return self.http_iterate_output([(data,)])
 
 	def http_write_text(self, string:str):
@@ -192,7 +192,7 @@ class Controller(object):
 		"""
 
 		d = string.encode('utf-8')
-		self.set_response(b'200', b'OK', len(d), cotype=b'text/plain;charset=utf-8')
+		self.http_set_response(b'200', b'OK', len(d), cotype=b'text/plain;charset=utf-8')
 		return self.http_iterate_output(((d,),))
 
 	def http_read_file_into_output(self, route, cotype:str=None):
@@ -211,8 +211,8 @@ class Controller(object):
 		lm = st.last_modified.select('rfc').encode('utf-8')
 		segments = memory.Segments.open(str(route))
 
-		self.add_header(b'Last-Modified', lm)
-		self.set_response(b'200', b'OK', st.size, cotype=cotype)
+		self.http_add_header(b'Last-Modified', lm)
+		self.http_set_response(b'200', b'OK', st.size, cotype=cotype)
 
 		self.http_iterate_output((x,) for x in segments)
 
@@ -231,8 +231,8 @@ class Controller(object):
 		st = route.fs_status()
 		lm = st.last_modified.select('rfc').encode('utf-8')
 
-		self.add_header(b'Last-Modified', lm)
-		self.set_response(b'200', b'OK', st.size, cotype=cotype)
+		self.http_add_header(b'Last-Modified', lm)
+		self.http_set_response(b'200', b'OK', st.size, cotype=cotype)
 
 		self.connect(None)
 
@@ -383,7 +383,7 @@ class Partition(core.Context):
 
 	def part_select(self, ctl):
 		ctl.accept(None)
-		ctl.set_response(b'500', b'MISCONFIGURED', 0, cotype=b'text/plain')
+		ctl.http_set_response(b'500', b'MISCONFIGURED', 0, cotype=b'text/plain')
 		ctl.connect(None)
 
 	def terminate(self):
@@ -572,8 +572,8 @@ class Host(core.Context):
 		# Individual Resources may support an OPTIONS request as well.
 		"""
 
-		ctl.add_header(b'Allow', b','.join(list(self.h_allowed_methods)))
-		ctl.set_response(b'204', b'NO CONTENT', None)
+		ctl.http_add_header(b'Allow', b','.join(list(self.h_allowed_methods)))
+		ctl.http_set_response(b'204', b'NO CONTENT', None)
 		ctl.accept(None)
 		ctl.connect(None)
 
@@ -605,7 +605,7 @@ class Host(core.Context):
 			b'</error>',
 		])
 
-		ctl.set_response(code_bytes, description_bytes, len(errmsg), cotype=b'text/xml')
+		ctl.http_set_response(code_bytes, description_bytes, len(errmsg), cotype=b'text/xml')
 		if no_body:
 			ctl.connect(None)
 		else:
@@ -626,7 +626,7 @@ class Host(core.Context):
 		# Route the request to the identified partition.
 		"""
 
-		ctl.extend_headers(self.h_headers)
+		ctl.http_extend_headers(self.h_headers)
 		path = ctl.request.pathstring
 		initial = self.h_root.get(path, None)
 

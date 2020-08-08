@@ -203,7 +203,7 @@ def select_filesystem_resource(error, routes, ctl, root, rpath):
 
 	method = req.method
 	if method not in {'GET', 'HEAD', 'OPTIONS'}:
-		ctl.add_header(b'Allow', b'GET, HEAD, OPTIONS')
+		ctl.http_add_header(b'Allow', b'GET, HEAD, OPTIONS')
 		error(ctl, 405, None)
 		return
 
@@ -239,8 +239,8 @@ def select_filesystem_resource(error, routes, ctl, root, rpath):
 		return
 
 	if method == 'OPTIONS':
-		ctl.add_header(b'Allow', b'HEAD,GET')
-		ctl.set_response(b'204', b'NO CONTENT', None)
+		ctl.http_add_header(b'Allow', b'HEAD,GET')
+		ctl.http_set_response(b'204', b'NO CONTENT', None)
 		ctl.connect(None)
 		return
 
@@ -266,7 +266,7 @@ def select_filesystem_resource(error, routes, ctl, root, rpath):
 					ctl.http_write_output(str(selected_type), data)
 				else:
 					cotype = str(selected_type).encode('utf-8')
-					ctl.set_response(b'200', b'OK', len(data), cotype)
+					ctl.http_set_response(b'200', b'OK', len(data), cotype)
 					ctl.connect(None)
 			return
 
@@ -284,7 +284,7 @@ def select_filesystem_resource(error, routes, ctl, root, rpath):
 			res = b'206'
 			descr = b'PARTIAL CONTENT'
 			cr = b'bytes %d-%d/%d' %(req_ranges[0][0], req_ranges[0][1], cosize)
-			ctl.add_header(b'Content-Range', cr)
+			ctl.http_add_header(b'Content-Range', cr)
 		else:
 			req_ranges = None
 			res = b'200'
@@ -294,7 +294,7 @@ def select_filesystem_resource(error, routes, ctl, root, rpath):
 		ct = cotype.encode('utf-8')
 		lm = selection_status.last_modified
 
-		ctl.extend_headers([
+		ctl.http_extend_headers([
 			(b'Last-Modified', lm.select('rfc').encode('utf-8')),
 			(b'Accept-Ranges', b'bytes'),
 		])
@@ -302,11 +302,11 @@ def select_filesystem_resource(error, routes, ctl, root, rpath):
 		if method == 'GET':
 			start, stop = ranges[0]
 			channel = ctl.invocations.system.read_file_range(str(selection), start, stop)
-			ctl.set_response(res, descr, rsize, cotype=ct)
+			ctl.http_set_response(res, descr, rsize, cotype=ct)
 			ctl.http_dispatch_output(channel)
 			channel.f_transfer(None)
 		elif method == 'HEAD':
-			ctl.set_response(res, descr, rsize, cotype=ct)
+			ctl.http_set_response(res, descr, rsize, cotype=ct)
 			ctl.connect(None)
 	except PermissionError:
 		error(ctl, 403, None)
