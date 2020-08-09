@@ -193,7 +193,7 @@ class Download(kcore.Context):
 		else:
 			print('TLS [none: no transport layer security]')
 
-		rstruct = ctl.response
+		rstruct = ctl.http_response
 		pdata, (rx, tx) = (invp.sector.xact_context.tp_get('http'))
 		print(tx.http_version.decode('utf-8'), end='\n\t')
 		print('\n\t'.join(str(rstruct).split('\n')))
@@ -203,7 +203,7 @@ class Download(kcore.Context):
 			ctl.accept(None)
 			self.dl_redirected = True
 			uri = rstruct.cache[b'location'].decode('utf-8')
-			print("\nRedirected[%d]: %s\n" %(ctl.response.status, uri))
+			print("\nRedirected[%d]: %s\n" %(ctl.http_response.status, uri))
 
 			if self.dl_depth >= redirect_limit:
 				print("Redirect limit reached.")

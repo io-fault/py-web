@@ -40,9 +40,10 @@ class Controller(object):
 	# Request execution controller for HTTP agents.
 
 	# [ Properties ]
-	# /response/
+	# /http_response/
 		# The &http.Structures instance representing the response status and headers.
 	"""
+	http_response = None
 
 	@property
 	def transport(self) -> io.Transport:
@@ -51,7 +52,7 @@ class Controller(object):
 	def __init__(self, invocations, channel_id, connect_output):
 		self.invocations = invocations
 		self.response = None
-		self.request_headers = []
+		self.http_request_headers = self.request_headers = []
 
 		self._connect_input = None
 		self._connect_output = connect_output
@@ -62,20 +63,20 @@ class Controller(object):
 	def _correlation(self, channel_id, parameters, connect_input):
 		self._connect_input = connect_input
 		self._response_channel_id = channel_id
-		self.response = http.Structures(parameters[2]).set_status(*parameters[:2])
+		self.http_response = self.response = http.Structures(parameters[2]).set_status(*parameters[:2])
 
 	def http_add_header(self, key:bytes, value:bytes):
 		"""
 		# Append a single header to the header sequence that will be supplied by the response.
 		"""
-		self.request_headers.append((key, value))
+		self.http_request_headers.append((key, value))
 	add_header = http_add_header
 
 	def http_extend_headers(self, pairs:http.HeaderSequence):
 		"""
 		# Add a sequence of headers.
 		"""
-		self.request_headers.extend(pairs)
+		self.http_request_headers.extend(pairs)
 	extend_headers = http_extend_headers
 
 	def http_set_request(self, method:bytes, uri:bytes, length:int, cotype:bytes=None, final=False):
@@ -95,12 +96,12 @@ class Controller(object):
 			self._http_content_headers(cotype, length)
 
 		if final:
-			self.request_headers.append((b'Connection', b'close'))
+			self.http_request_headers.append((b'Connection', b'close'))
 			self._final = True
 		else:
-			self.request_headers.append((b'Connection', b'keep-alive'))
+			self.http_request_headers.append((b'Connection', b'keep-alive'))
 
-		self._request = (method, uri, self.request_headers, length)
+		self._request = (method, uri, self.http_request_headers, length)
 
 		return self
 	set_request = http_set_request
@@ -127,7 +128,7 @@ class Controller(object):
 		# Define the type and length of the entity body to be sent.
 		"""
 
-		rh = self.request_headers
+		rh = self.http_request_headers
 		rh.append((b'Content-Type', cotype))
 
 		if length is None:
@@ -324,7 +325,7 @@ class RInvocation(object):
 		self._output_length = length
 
 	def declare_output_chunked(self):
-		self.response_headers.append((b'Transfer-Encoding', b'chunked'))
+		self.http_response_headers.append((b'Transfer-Encoding', b'chunked'))
 		self._output_length = None
 
 	def __init__(self, exit_method, method:bytes, path:bytes, headers:http.HeaderSequence):

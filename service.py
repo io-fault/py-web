@@ -49,8 +49,8 @@ class Controller(object):
 
 	def __init__(self, invocations, request:http.Structures, connect_output, connect_input, channel_id):
 		self.invocations = invocations
-		self.request = request
-		self.response_headers = []
+		self.http_request = self.request = request
+		self.http_response_headers = self.response_headers = []
 		self._response = None
 		self._connect_output = connect_output
 		self._connect_input = connect_input
@@ -81,14 +81,14 @@ class Controller(object):
 		"""
 		# Append a single header to the header sequence that will be supplied by the response.
 		"""
-		self.response_headers.append((key, value))
+		self.http_response_headers.append((key, value))
 	add_header = http_add_header
 
 	def http_extend_headers(self, pairs:http.HeaderSequence) -> None:
 		"""
 		# Add a sequence of headers.
 		"""
-		self.response_headers.extend(pairs)
+		self.http_response_headers.extend(pairs)
 	extend_headers = http_extend_headers
 
 	def http_set_response(self, code:bytes, descr:bytes, length:int, cotype:bytes=None):
@@ -106,7 +106,7 @@ class Controller(object):
 		# will be provided.
 		"""
 
-		self._response = (code, descr, self.response_headers, length)
+		self._response = (code, descr, self.http_response_headers, length)
 		if cotype is not None:
 			self._http_content_headers(cotype, length)
 
@@ -139,7 +139,7 @@ class Controller(object):
 		# Define the type and length of the entity body to be sent.
 		"""
 
-		rh = self.response_headers
+		rh = self.http_response_headers
 		rh.append((b'Content-Type', cotype))
 
 		if length is None:
