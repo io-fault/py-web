@@ -155,9 +155,9 @@ class Serialization(object):
 
 	# [ Properties ]
 
-	# /xml_prefix
+	# /xml_prefix/
 		# The prefix to use when serializing elements with &prefixed.
-	# /xml_encoding
+	# /xml_encoding/
 		# The encoding to use when serializing &str objects.
 	"""
 

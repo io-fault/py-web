@@ -5,7 +5,7 @@
 
 # [ Engineering ]
 # Agents are fairly complicated with respect to preferences. The current
-# implementation presumes HTTP/1.1 in most cases where a protocol priority should
+# implementation presumes (internet/protocol)`HTTP/1.1` in most cases where a protocol priority should
 # be used to select a desired wire protocol.
 
 # &Navigation and &Session are essentially unimplemented. Finding a generic structure
@@ -41,7 +41,7 @@ class Controller(object):
 
 	# [ Properties ]
 	# /http_response/
-		# The &http.Structures instance representing the response status and headers.
+		# The &.http.Structures instance representing the response status and headers.
 	"""
 	http_response = None
 
@@ -287,7 +287,7 @@ class RInvocation(object):
 	# An HTTP request received by a service and its determined response headers and status.
 
 	# The parameters should store exact bytes instances that were read by the transport.
-	# Higher-level interfaces, &Structure, should often decode these field accordingly.
+	# Higher-level interfaces, &.http.Structures, should often decode these field accordingly.
 
 	# [ Properties ]
 

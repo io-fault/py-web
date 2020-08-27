@@ -1,8 +1,5 @@
 """
-# IETF HTTP tools for &..kernel based applications.
-
-# &.http provides foundations for clients and servers. &.agent provides client
-# transaction contexts &.service provides server transaction contexts.
+# Client and server common IETF HTTP tools for &..kernel based applications.
 
 # [ Properties ]
 # /HeaderSequence/
@@ -31,7 +28,7 @@ HeaderSequence = typing.Sequence[typing.Tuple[bytes, bytes]]
 
 def ranges(length, range_header, decode_number=int):
 	"""
-	# Generator producing the ranges specified by the given Range header.
+	# Generator producing the integer ranges specified by the given Range header.
 
 	# [ Parameters ]
 	# /length/
