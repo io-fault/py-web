@@ -118,18 +118,33 @@ def rewrite_names(hostname, host):
 
 	host['subject'] = default
 
-def parse_network_config(string):
+def parse_network_config(string, indentation='\t', level=0):
 	# http host network
 	cfg = {}
 
-	for hostsection in string.split('\n@'): # Host declaration.
-		if not hostsection or hostsection.lstrip()[:1] == '#':
-			continue
+	cfg_segments = string.split('\n' + (level * indentation) + '@')
 
-		hostspec, *hconfig = hostsection.split('\n\t')
-		host, aliases = hostspec.split(':', 1)
+	hlevel = level + 1
 
-		host = host.strip('@') # Handle initial section case.
+	# None host for context headers.
+	hostsegments = [
+		((None, ''), cfg_segments[0].split('\n' + (level * indentation)))
+	]
+	# Preprocess the hostsegments.
+	hostsegments.extend(
+		(tuple(x[0].split(':', 1)), x[1:])
+		for x in (
+			hostsection.split('\n' + (hlevel * indentation))
+			for hostsection in cfg_segments[1:]
+			if hostsection and not hostsection.lstrip()[:1] == '#'
+		)
+	)
+
+	del cfg_segments
+
+	for hostspec, hconfig in hostsegments: # Host declaration.
+		host, aliases = hostspec
+
 		parts = {}
 		hc = cfg[host] = {
 			'names': set(aliases.split()), # Including suffix matches.
@@ -142,11 +157,15 @@ def parse_network_config(string):
 
 		symbol = target = mount_point = None
 		for directive in hconfig:
-			if directive.lstrip().startswith('#'):
+			if directive.lstrip()[:1] in {'#', ''}:
+				# Comment or empty line.
 				continue
 
-			if directive.startswith('\t'):
+			# The initial split producing the hostsegments made this indentation relative.
+			# No indentation multiplication is necessary here.
+			if directive.startswith(indentation):
 				# Indented continuations.
+				# Add line content to the existing set or sequence.
 				if symbol is None:
 					pass
 				if symbol == ':Redirect':
@@ -178,7 +197,7 @@ def parse_network_config(string):
 				if directive[:1] == ':':
 					symbol, parameters = directive.strip('\n').split(None, 1)
 				else:
-					symbol, parameters = directive.strip('\n').split(':', 1) # Clean empty lines.
+					symbol, parameters = directive.strip('\n').split(':', 1) #* Remove empty lines.
 					hc['headers'].append((
 						symbol.strip().encode('utf-8'),
 						parameters.strip().encode('utf-8')
@@ -190,7 +209,7 @@ def parse_network_config(string):
 				target, *endpoints = parameters.split()
 				hc['redirects'][target] = endpoints
 			elif symbol == ':Partition':
-				mount_point, *remainder = parameters.strip().split(None, 3) # Path is required.
+				mount_point, *remainder = parameters.strip().split(None, 3) #* Path is required.
 				if mount_point[-1] != '/':
 					mount_point += '/'
 
@@ -200,10 +219,7 @@ def parse_network_config(string):
 					parts[mount_points] = remainder[2:] + remainder[2].rstrip('\n').split(' ')
 			elif symbol == ':Allow':
 				methods = parameters.split()
-				hc['allowed-methods'] = methods
-			elif symbol == ':Inherit':
-				for template_host in parameters.split():
-					merge(hc, cfg[template_host])
+				hc['allowed-methods'] = set(methods)
 			else:
 				# Unknown directive.
 				pass
@@ -301,12 +317,18 @@ def allocate_network(optdata, kports):
 	# Interface -> Connections -> (http) Network
 	netcfg = {}
 	for configpath in optdata['host-networks']:
-		netcfg.update(parse_network_config(open(configpath).read()))
+		net = parse_network_config(open(configpath).read())
+
+		# Merge context.
+		ctx = net.pop(None) #* Context not populated by parser.
+		for host in net.values():
+			merge(host, ctx)
+
+		netcfg.update(net)
 
 	hostset = {
 		host: create_host(host, hcfg)
 		for host, hcfg in netcfg.items()
-		if (host[:1] + host[-1:]) != '<>' # Ignore templates.
 	}
 
 	network = service.Network(list(hostset.values()))
