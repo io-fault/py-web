@@ -75,20 +75,6 @@ def parse_arguments(name, args):
 
 	return ((name, cmdgroups[0][1]), remainder)
 
-def merge(target, source):
-	for x in ('names', 'partitions', 'allowed-methods'):
-		target[x].update(source[x])
-
-	for x in ('headers',):
-		target[x].extend(source[x])
-
-	src = source['redirects']
-	dst = target['redirects']
-	for k, values in src.items():
-		if k not in dst:
-			dst[k] = []
-		dst[k].extend(values)
-
 def rewrite_names(hostname, host):
 	selected = True
 	default = hostname
@@ -118,111 +104,137 @@ def rewrite_names(hostname, host):
 
 	host['subject'] = default
 
+def parse_host_config(indentation, level, section):
+	"""
+	# Parse the contents of a `@host` section.
+	"""
+	methods = set()
+	partitions = {}
+	redirects = {}
+	headers = []
+
+	# State fields.
+	symbol = target = mount_point = None
+
+	for directive in section.split('\n' + (level * indentation)):
+		if directive.lstrip()[:1] in {'#', ''}:
+			# Comment or empty line.
+			continue
+
+		# The initial split producing the hostsegments made this indentation relative.
+		# No indentation multiplication is necessary here.
+		if directive.startswith(indentation):
+			# Indented continuations.
+			# Add line content to the existing set or sequence.
+			if symbol is None:
+				pass
+			if symbol == ':Redirect':
+				redirects[target] += directive.split()
+			elif symbol == ':Allow':
+				methods += directive.split()
+			elif symbol == ':Partition':
+				part = partitions[mount_point]
+
+				n = len(part)
+				if n > 2:
+					# Extend argument vector.
+					part += directive[1:].strip().split(' ') # Trim the leading tab.
+				else:
+					part += directive.strip().split(None, 2 - n)
+					if len(part) > 2:
+						# Initialize the now present argument vector.
+						part[2:] = part[2].rstrip('\n').split(' ')
+			else:
+				# Extend previously declared header.
+				h, v = headers[-1]
+				if v:
+					v += b' '
+				v += directive.strip().encode('utf-8')
+				headers[-1] = (h, v)
+
+			continue
+		else:
+			if directive[:1] == ':':
+				symbol, parameters = directive.strip('\n').split(None, 1)
+			else:
+				symbol, parameters = directive.strip('\n').split(':', 1) #* Remove empty lines.
+				headers.append((
+					symbol.strip().encode('utf-8'),
+					parameters.strip().encode('utf-8')
+				))
+				continue
+
+		# New setting.
+		if symbol == ':Redirect':
+			target, *endpoints = parameters.split()
+			redirects[target] = endpoints
+		elif symbol == ':Partition':
+			mount_point, *remainder = parameters.strip().split(None, 3) #* Path is required.
+			if mount_point[-1] != '/':
+				mount_point += '/'
+
+			if len(remainder) < 3:
+				partitions[mount_point] = remainder
+			else:
+				partitions[mount_points] = remainder[2:] + remainder[2].rstrip('\n').split(' ')
+		elif symbol == ':Allow':
+			methods = set(parameters.split())
+		else:
+			# Unknown directive.
+			pass
+
+	return {
+		'allowed-methods': methods,
+		'partitions': partitions,
+		'redirects': redirects,
+		'headers': headers,
+	}
+
+def host_inherit_context(target, source):
+	# Sets, union.
+	for x in ('allowed-methods',):
+		target[x].update(source[x])
+
+	# Dictionaries, setdefaults.
+	# Arguably, redirects could be merged at the value level,
+	# but it doesn't seem useful so just setdefault.
+	for x in ('partitions', 'redirects'):
+		d = source[x]
+		y = target[x]
+		for k, v in d.items():
+			y.setdefault(k, v)
+
+	# Header sequence, prefix.
+	for x in ('headers',):
+		target[x][:0] = source[x]
+
 def parse_network_config(string, indentation='\t', level=0):
 	# http host network
 	cfg = {}
 
+	# (context-host, *http-hosts)
 	cfg_segments = string.split('\n' + (level * indentation) + '@')
 
+	# Everything before the first "^@host:...\n"
+	ctx = parse_host_config(indentation, level, cfg_segments[0])
+
 	hlevel = level + 1
+	hprefix = (indentation * hlevel)
+	for section in cfg_segments[1:]: # Host declaration.
+		if not section or section[:1] == '#':
+			continue
 
-	# None host for context headers.
-	hostsegments = [
-		((None, ''), cfg_segments[0].split('\n' + (level * indentation)))
-	]
-	# Preprocess the hostsegments.
-	hostsegments.extend(
-		(tuple(x[0].split(':', 1)), x[1:])
-		for x in (
-			hostsection.split('\n' + (hlevel * indentation))
-			for hostsection in cfg_segments[1:]
-			if hostsection and not hostsection.lstrip()[:1] == '#'
-		)
-	)
+		# Separate the first line containing the host and alias set.
+		hostspec, section_content = section.split('\n' + hprefix, 1)
 
-	del cfg_segments
+		hc = parse_host_config(indentation, hlevel, section_content)
 
-	for hostspec, hconfig in hostsegments: # Host declaration.
-		host, aliases = hostspec
+		host, aliases = hostspec.split(':', 1)
+		hc['names'] = set(aliases.split())
+		hc['subject'] = host
 
-		parts = {}
-		hc = cfg[host] = {
-			'names': set(aliases.split()), # Including suffix matches.
-			'allowed-methods': set(),
-			'partitions': parts,
-			'subject': host,
-			'redirects': {},
-			'headers': [],
-		}
-
-		symbol = target = mount_point = None
-		for directive in hconfig:
-			if directive.lstrip()[:1] in {'#', ''}:
-				# Comment or empty line.
-				continue
-
-			# The initial split producing the hostsegments made this indentation relative.
-			# No indentation multiplication is necessary here.
-			if directive.startswith(indentation):
-				# Indented continuations.
-				# Add line content to the existing set or sequence.
-				if symbol is None:
-					pass
-				if symbol == ':Redirect':
-					hc['redirects'][target] += directive.split()
-				elif symbol == ':Allow':
-					hc['allowed-methods'] += directive.split()
-				elif symbol == ':Partition':
-					part = parts[mount_point]
-
-					n = len(part)
-					if n > 2:
-						# Extend argument vector.
-						part += directive[1:].strip().split(' ') # Trim the leading tab.
-					else:
-						part += directive.strip().split(None, 2 - n)
-						if len(part) > 2:
-							# Initialize the now present argument vector.
-							part[2:] = part[2].rstrip('\n').split(' ')
-				else:
-					# Extend previously declared header.
-					h, v = hc['headers'][-1]
-					if v:
-						v += b' '
-					v += directive.strip().encode('utf-8')
-					hc['headers'][-1] = (h, v)
-
-				continue
-			else:
-				if directive[:1] == ':':
-					symbol, parameters = directive.strip('\n').split(None, 1)
-				else:
-					symbol, parameters = directive.strip('\n').split(':', 1) #* Remove empty lines.
-					hc['headers'].append((
-						symbol.strip().encode('utf-8'),
-						parameters.strip().encode('utf-8')
-					))
-					continue
-
-			# New setting.
-			if symbol == ':Redirect':
-				target, *endpoints = parameters.split()
-				hc['redirects'][target] = endpoints
-			elif symbol == ':Partition':
-				mount_point, *remainder = parameters.strip().split(None, 3) #* Path is required.
-				if mount_point[-1] != '/':
-					mount_point += '/'
-
-				if len(remainder) < 3:
-					parts[mount_point] = remainder
-				else:
-					parts[mount_points] = remainder[2:] + remainder[2].rstrip('\n').split(' ')
-			elif symbol == ':Allow':
-				methods = parameters.split()
-				hc['allowed-methods'] = set(methods)
-			else:
-				# Unknown directive.
-				pass
+		host_inherit_context(hc, ctx)
+		cfg[host] = hc
 
 	return cfg
 
@@ -318,12 +330,6 @@ def allocate_network(optdata, kports):
 	netcfg = {}
 	for configpath in optdata['host-networks']:
 		net = parse_network_config(open(configpath).read())
-
-		# Merge context.
-		ctx = net.pop(None) #* Context not populated by parser.
-		for host in net.values():
-			merge(host, ctx)
-
 		netcfg.update(net)
 
 	hostset = {
