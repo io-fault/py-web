@@ -430,7 +430,7 @@ class Host(core.Context):
 		# to match patterns as well.
 
 	# /h_canonical/
-		# The first name given to &update_host_names. &None
+		# The first name given to &h_update_names. &None
 		# if no names were given and the name should be
 		# inherited from requests.
 
