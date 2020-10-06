@@ -13,8 +13,8 @@ from ...kernel import system as ksystem
 from ...kernel import core as kcore
 from ...kernel import io as kio
 from ...kernel import dispatch as kdispatch
+from ...kernel import daemon
 
-from ...sectors import daemon
 from ...context import tools
 
 from .. import service

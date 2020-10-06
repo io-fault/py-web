@@ -12,8 +12,7 @@ from ...kernel import system as ksystem
 from ...kernel import core as kcore
 from ...kernel import io as kio
 from ...kernel import dispatch as kdispatch
-
-from ...sectors import daemon
+from ...kernel import daemon
 
 from .. import service
 
