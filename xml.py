@@ -51,7 +51,7 @@ def escape_element_string(string, encoding='utf-8'):
 	# XML element body. This depends on &escape_element_bytes
 	# and has the same limitations with respect to control characters.
 
-	# *This returns an iterable suitable for use by &element*.
+	# This returns an iterable suitable for use by &element.
 	"""
 
 	string = string.replace('&', '&#38;')
@@ -180,7 +180,7 @@ class Serialization(object):
 
 		# [ Parameters ]
 
-		# /standalone
+		# /standalone/
 			# The `standalone` attribute for the declaration.
 		"""
 
