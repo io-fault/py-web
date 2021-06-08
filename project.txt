@@ -9,7 +9,7 @@
 /name/
 	`web`
 /abstract/
-	Web interaction tools
+	Agent and Service framework for HTTP semantics.
 
 /authority/
 	`fault.io`
