@@ -60,7 +60,7 @@ class Download(kcore.Context):
 		self.dl_identities = []
 
 	def _force_quit(self):
-		print() # Avoid trampling on status.
+		print() # Create newline, avoid trampling on status.
 		raise Exception("termination")
 
 	def terminate(self):
@@ -105,7 +105,7 @@ class Download(kcore.Context):
 		headers = [
 			(b'Host', struct['host'].encode('idna')),
 			(b'Accept', b"application/octet-stream, */*"),
-			(b'User-Agent', b"curl/7.54.0"),
+			(b'User-Agent', b"curl/7.55.0"),
 			(b'Connection', b'close'),
 		]
 
@@ -183,7 +183,7 @@ class Download(kcore.Context):
 			i = tls.status()
 			print('%s [%s]' %(i[0], i[2]))
 			print('\thostname:', tls.hostname.decode('idna'))
-			print('\tapplication:', tls.application)
+			print('\tapplication:', repr(tls.application))
 			print('\tprotocol:', tls.protocol)
 			fields = '\n\t'.join([
 				'%s: %r' %(k, v)
