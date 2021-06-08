@@ -41,7 +41,7 @@ from ...security import kprotocol as ksecurity
 redirect_limit = 4
 
 try:
-	security_context = ksecurity.load('client').Context()
+	security_context = ksecurity.load('client').Context(applications=(b'http/1.1',))
 except ImportError:
 	security_context = None
 
