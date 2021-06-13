@@ -54,20 +54,22 @@ class Download(kcore.Context):
 	_dl_xfer = None
 	_dl_last_status = 0
 
-	def __init__(self, depth, endpoint):
+	def __init__(self, status, output, depth, endpoint):
+		self.dl_display = status
+		self.dl_output = output
 		self.dl_endpoint = endpoint
 		self.dl_depth = depth
 		self.dl_identities = []
 
 	def _force_quit(self):
-		print() # Create newline, avoid trampling on status.
+		self.dl_display.write('\n') # Create newline, avoid trampling on status.
 		raise Exception("termination")
 
 	def terminate(self):
 		self.start_termination()
 		self.critical(self._force_quit)
 
-	def dl_pprint(self, file, screen, source):
+	def dl_pprint(self, screen, source):
 		rp = screen.terminal_type.normal_render_parameters
 
 		phrase = screen.Phrase.from_words(
@@ -76,21 +78,19 @@ class Download(kcore.Context):
 				for s, color in source
 			)
 		)
-		file.buffer.write(b''.join(screen.render(phrase)) + screen.reset_text())
+		self.dl_display.buffer.write(b''.join(screen.render(phrase)) + screen.reset_text())
 
 	def dl_response_collected(self):
 		if self.dl_redirected:
 			return
-
-		target_path = self.dl_target_path
 		self.dl_status()
 
 		from ...terminal.format import path
 		from ...terminal import matrix
 		screen = matrix.Screen()
-		sys.stdout.write('\n\rResponse collected; data stored in ')
-		self.dl_pprint(sys.stdout, screen, path.f_route_absolute(target_path))
-		sys.stdout.write('\n')
+		self.dl_display.write('\n\rResponse collected; data stored in ')
+		self.dl_pprint(screen, path.f_route_absolute(self.dl_output))
+		self.dl_display.write('\n')
 
 		self.executable.exe_status = 0
 		self._r.terminate()
@@ -117,8 +117,7 @@ class Download(kcore.Context):
 		else:
 			path = files.Path.from_path('index')
 
-		self.dl_target_path = path
-
+		self.dl_resource_name = path
 		return req
 
 	def dl_status(self, time=None):
@@ -171,45 +170,53 @@ class Download(kcore.Context):
 		else:
 			erase = ''
 
-		print(status + erase, end=final)
+		self.dl_display.write(status + erase + '\r')
 		return next
 
 	def dl_response_endpoint(self, invp):
+		report = self.dl_display.write
 		self.dl_controller._correlation(*list(invp.i_correlate())[0])
 		ctl = self.dl_controller
 
 		if self.dl_tls:
 			tls = self.dl_tls
 			i = tls.status()
-			print('%s [%s]' %(i[0], i[2]))
-			print('\thostname:', tls.hostname.decode('idna'))
-			print('\tapplication:', repr(tls.application))
-			print('\tprotocol:', tls.protocol)
-			fields = '\n\t'.join([
+			tlsbuf = ('%s [%s]\n' %(i[0], i[2]))
+			tlsbuf += ('\thostname: %s\n' % (tls.hostname.decode('idna'),))
+			tlsbuf += ('\tapplication: %s\n' % (repr(tls.application),))
+			tlsbuf += ('\tprotocol: %s\n' % (tls.protocol,))
+			fields = '\n\t'.join(
 				'%s: %r' %(k, v)
 				for k, v in tls.peer.subject
-			])
-			print('\t'+fields)
+			)
+			tlsbuf += ('\t'+fields+'\n')
+			report(tlsbuf)
 		else:
-			print('TLS [none: no transport layer security]')
+			report('TLS [none: no transport layer security]\n')
 
 		rstruct = ctl.http_response
 		pdata, (rx, tx) = (invp.sector.xact_context.tp_get('http'))
-		print(tx.http_version.decode('utf-8'), end='\n\t')
-		print('\n\t'.join(str(rstruct).split('\n')))
+		report(tx.http_version.decode('utf-8') + '\n\t')
+		report('\n\t'.join(str(rstruct).split('\n')) + '\n')
+
+		if self.dl_output is None:
+			filepath = self.dl_resource_name
+		else:
+			filepath = self.dl_output
 
 		# Redirect.
 		if rstruct.redirected:
 			ctl.accept(None)
 			self.dl_redirected = True
 			uri = rstruct.cache[b'location'].decode('utf-8')
-			print("\nRedirected[%d]: %s\n" %(ctl.http_response.status, uri))
+			report("\n")
+			report("Redirected[%d]: %s\n\n" %(ctl.http_response.status, uri))
 
 			if self.dl_depth >= redirect_limit:
-				print("Redirect limit reached.")
+				report("Redirect limit (%d) reached.\n" %(self.redirect_limit,))
 				self.executable.exe_status = 1
 			else:
-				dl = Download(self.dl_depth + 1, ri.parse(uri))
+				dl = Download(self.dl_display, filepath, self.dl_depth + 1, ri.parse(uri))
 				self.executable.exe_enqueue(dl)
 
 			self._r.terminate()
@@ -217,11 +224,9 @@ class Download(kcore.Context):
 			return
 
 		self.dl_content_length = rstruct.length
-		path = self.dl_target_path
-
-		self.dl_identities.append(path)
+		self.dl_identities.append(filepath)
 		self.dl_status()
-		self.dl_monitor = ctl.http_read_input_into_file(str(path), Terminal=kio.flows.Monitor)
+		self.dl_monitor = ctl.http_read_input_into_file(str(filepath), Terminal=kio.flows.Monitor)
 
 	def dl_dispatch(self, struct, endpoint):
 		req = self.dl_request(struct)
@@ -235,9 +240,9 @@ class Download(kcore.Context):
 
 		struct['fragment'] = '[%s]' %(str(endpoint.address),)
 		struct['port'] = str(int(endpoint.port))
-		self.dl_pprint(sys.stderr, screen, f_struct(struct))
-		sys.stderr.write('\n')
-		sys.stderr.buffer.flush()
+		self.dl_pprint(screen, f_struct(struct))
+		self.dl_display.write('\n')
+		self.dl_display.buffer.flush()
 
 		inv = self.dl_request(struct)
 		fd = network.connect(endpoint)
@@ -275,7 +280,7 @@ class Download(kcore.Context):
 		host = struct['host'].strip('[').strip(']')
 		cname, a = network.select_endpoints(host, struct['scheme'])
 		for ep in a:
-			print('Possible host:', str(ep))
+			self.dl_display.write('Possible host: %s\n' %(str(ep),))
 			lendpoints.append((struct, ep))
 
 		if not lendpoints:
@@ -291,8 +296,15 @@ def main(inv:process.Invocation) -> process.Exit:
 	ri.strict()
 	os.umask(0o137)
 
-	iri, = inv.argv # One http endpoint.
-	dl = Download(1, ri.parse(iri))
+	path = None
+	iri = inv.argv[0]
+	if len(inv.argv) > 1:
+		pathstr = inv.argv[1].strip()
+		if pathstr and pathstr != '-':
+			path = files.Path.from_path(pathstr)
+		del pathstr
+
+	dl = Download(sys.stderr, path, 1, ri.parse(iri))
 
 	from ...kernel import system
 	process = system.dispatch(inv, dl)
