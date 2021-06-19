@@ -1,3 +1,1 @@
-"""
-# Web server and client framework based on &..kernel.
-"""
+# Project package module for supporting sys.path imports.
