@@ -4,6 +4,8 @@
 import os
 import functools
 
+from ...vector import recognition
+
 from ...system.files import Path
 from ...system import kernel
 from ...system import process
@@ -20,60 +22,10 @@ from ...context import tools
 from .. import service
 
 optmap = {
-	'-L': 'listening-interfaces',
-	'-P': 'concurrency',
-	'-t': 'trap',
+	'-F': ('sequence-append', 'listening-interfaces'),
+	'-L': ('field-replace', 'concurrency'),
+	'-t': ('field-replace', 'trap-host'),
 }
-
-def sequence_arguments(igroups, default=None):
-	# igroups contains the option argument associated
-	# with all non-option arguments following the option
-	# This yields out those options associated with the
-	# first argument following the option rather than all of them,
-	# depending on the type of option.
-
-	for group, contents in igroups:
-		if group is None:
-			pass
-		elif group[:2] == '--':
-			if '=' in group:
-				yield tuple(group.split('='))
-			else:
-				yield (group, None)
-			group = default
-		elif group[:1] == '-':
-			if len(group) > 2:
-				# Included parameter.
-				yield (group[:2], group[2:])
-				group = default
-			elif not contents:
-				yield (group, None)
-
-		if contents:
-			yield (group, contents[0])
-
-		for x in contents[1:]:
-			yield (default, x)
-
-def parse_arguments(name, args):
-	optgroups = tools.group((lambda x: x[:1] == '-'), args)
-	cmdgroups = list(tools.group(
-		(lambda x: (x is None or x[0] is None)),
-		sequence_arguments(optgroups)
-	))
-
-	assert cmdgroups[0][0] is None
-
-	# Flatten the arguments following the first set of options.
-	remainder = []
-	for x in cmdgroups[1:]:
-		remainder.append(x[0][1])
-		for opt, arg in x[1]:
-			remainder.append(opt)
-			if arg is not None:
-				remainder.append(arg)
-
-	return ((name, cmdgroups[0][1]), remainder)
 
 def rewrite_names(hostname, host):
 	selected = True
@@ -338,7 +290,7 @@ def allocate_network(optdata, kports):
 	}
 
 	network = service.Network(list(hostset.values()))
-	network.http_default_host = optdata['trap']
+	network.http_default_host = optdata['trap-host']
 
 	cxns = kio.Connections(network.net_accept)
 	ifs = []
@@ -359,24 +311,16 @@ def integrate(name, args):
 		'listening-interfaces': [],
 		'host-networks': [],
 		'concurrency': os.environ.get('SERVICE_CONCURRENCY', '1'),
-		'trap': None,
+		'trap-host': None,
 	}
 
-	optset, arguments = parse_arguments(name, args)
-	for opt, param  in optset[1]:
-		opt = optmap[opt]
-		dv = optdata[opt]
+	optevents = recognition.legacy({}, optmap, args)
+	optdata['host-networks'] = recognition.merge(optdata, optevents)
 
-		if isinstance(dv, list):
-			dv.append(param)
-		else:
-			optdata[opt] = param
-
-	return optdata, arguments
+	return optdata
 
 def main(inv:process.Invocation) -> process.Exit:
-	optdata, arguments = integrate(inv.parameters['system']['name'], inv.args)
-	optdata['host-networks'] = arguments
+	optdata = integrate(inv.parameters['system']['name'], inv.argv)
 
 	ifcfg = {}
 	lset = set()
