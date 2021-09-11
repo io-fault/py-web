@@ -89,7 +89,7 @@ class Download(kcore.Context):
 		from ...terminal import matrix
 		screen = matrix.Screen()
 		self.dl_display.write('\n\rResponse collected; data stored in ')
-		self.dl_pprint(screen, path.f_route_absolute(self.dl_output))
+		self.dl_pprint(screen, path.f_route_absolute(self.dl_output or self.dl_resource_name))
 		self.dl_display.write('\n')
 
 		self.executable.exe_status = 0
