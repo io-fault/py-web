@@ -113,9 +113,9 @@ class Download(kcore.Context):
 		req.parameters['ri'] = struct
 
 		if struct['path']:
-			path = files.Path.from_path(struct['path'][-1])
+			path = process.fs_pwd()@(struct['path'][-1])
 		else:
-			path = files.Path.from_path('index')
+			path = process.fs_pwd()@'index'
 
 		self.dl_resource_name = path
 		return req
@@ -301,7 +301,7 @@ def main(inv:process.Invocation) -> process.Exit:
 	if len(inv.argv) > 1:
 		pathstr = inv.argv[1].strip()
 		if pathstr and pathstr != '-':
-			path = files.Path.from_path(pathstr)
+			path = process.fs_pwd()@pathstr
 		del pathstr
 
 	dl = Download(sys.stderr, path, 1, ri.parse(iri))
