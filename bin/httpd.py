@@ -300,8 +300,6 @@ def allocate_network(optdata, kports):
 		ifs.append(i)
 
 	ifseq = kcore.Sequenced(ifs) # Does not require sequenced shutdown.
-	coif = kdispatch.Coprocess('system-interfaces', ifseq)
-	cocx = kdispatch.Coprocess('service-connections', cxns)
 
 	# Terminated in reverse order.
 	return kcore.Sequenced([network, cocx, coif])
@@ -338,7 +336,7 @@ def main(inv:process.Invocation) -> process.Exit:
 		except FileNotFoundError:
 			pass
 
-	workers = max(int(optdata.get('concurrency', 1)), 1)
+	workers = int(optdata.get('concurrency', 1))
 
 	kports = {
 		p: kernel.Ports([network.service(x) for x in ep])
@@ -347,9 +345,10 @@ def main(inv:process.Invocation) -> process.Exit:
 
 	alloc = functools.partial(allocate_network, optdata, kports)
 	net = alloc()
-	dpm = daemon.ProcessManager(net, alloc, concurrency=workers)
+	if workers:
+		net = daemon.ProcessManager(net, alloc, concurrency=workers)
 
-	process = ksystem.dispatch(inv, dpm, identifier='http-network-daemon')
+	process = ksystem.dispatch(inv, net, identifier='http-network-daemon')
 	ksystem.set_root_process(process)
 	ksystem.control()
 
